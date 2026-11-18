@@ -1,0 +1,52 @@
+import { createIcons, icons } from 'lucide';
+import WaveSurfer from 'wavesurfer.js';
+import Sortable from 'sortablejs';
+
+// Alpine is provided by Livewire (@livewireScripts); register shared components before it starts.
+window.WaveSurfer = WaveSurfer;
+window.Sortable = Sortable;
+window.mfIcons = () => createIcons({ icons, attrs: { 'stroke-width': 1.75 } });
+
+document.addEventListener('DOMContentLoaded', window.mfIcons);
+document.addEventListener('livewire:navigated', window.mfIcons);
+document.addEventListener('livewire:init', () => {
+    Livewire.hook('morphed', () => window.mfIcons());
+});
+
+// toast notifications: window.dispatchEvent(new CustomEvent('toast', {detail: {message, tone}}))
+window.toast = (message, tone = 'info') => window.dispatchEvent(new CustomEvent('toast', { detail: { message, tone } }));
+
+// JSON fetch with CSRF
+window.mfFetch = async (url, { method = 'GET', body = null } = {}) => {
+    const res = await fetch(url, {
+        method,
+        headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content,
+        },
+        body: body ? JSON.stringify(body) : null,
+        credentials: 'same-origin',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const msg = data.message || Object.values(data.errors || {})[0]?.[0] || `Request failed (${res.status})`;
+        throw new Error(msg);
+    }
+    return data;
+};
+
+// keyboard shortcuts: g d → dashboard, g p → projects, n → new project, / → focus search
+let pending = null;
+document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable) return;
+    if (e.key === '/') { const s = document.querySelector('[data-search]'); if (s) { e.preventDefault(); s.focus(); } return; }
+    if (pending === 'g') {
+        const map = { d: '/dashboard', p: '/projects', r: '/render-queue', u: '/usage', s: '/settings/ai-providers' };
+        if (map[e.key]) window.location = map[e.key];
+        pending = null; return;
+    }
+    if (e.key === 'g') { pending = 'g'; setTimeout(() => (pending = null), 800); return; }
+    if (e.key === 'n' && !e.metaKey && !e.ctrlKey) window.location = '/projects/create';
+    if (e.key === '?') window.dispatchEvent(new CustomEvent('shortcuts'));
+});
