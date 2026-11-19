@@ -53,8 +53,13 @@ class KikitoonsEngine implements AnimationEngineInterface
 
     public function validateCode(string $code): array
     {
-        $p = SandboxProcess::make([config('motionforge.node'), config('motionforge.validator')], $this->tmp('validate'), 30, json_encode(['code' => $code, 'allow' => ['mfStage', 'SCENE_INDEX']]));
-        $p->run();
+        $work = $this->tmp('validate');
+        try {
+            $p = SandboxProcess::make([config('motionforge.node'), config('motionforge.validator')], $work, 30, json_encode(['code' => $code, 'allow' => ['mfStage', 'SCENE_INDEX']]));
+            $p->run();
+        } finally {
+            $this->cleanup($work);
+        }
         $out = json_decode(trim($p->getOutput()), true);
         if (! is_array($out)) {
             throw new RuntimeException('The code validator failed to run: '.mb_substr($p->getErrorOutput(), 0, 300));

@@ -67,37 +67,40 @@ Production Studio" spec (22 sections) plus the `kikitoons-video-maker-v1` skill
 - [x] All pages return 200 when logged in (dashboard, projects, wizard, tabs, editor, studio, libraries, queue,
       videos, usage, settings)
 
-### In progress (check first when resuming)
-- [ ] **Full render end to end through HTTP** for the synthetic E2E project (user `e2e@motionforge.test`, project
-      "E2E Pipeline Test"). Check: `php artisan tinker` → `App\Models\RenderJob::latest()->first()` (status/stage/error).
-      Last observed: render job "running", stage stuck on "Aligning voice and subtitles" with 0/683 frames for about
-      2 minutes. Find out whether the scene batch inside the chain was dispatched (`job_batches`, `jobs` tables,
-      `storage/logs/laravel.log`) and whether `queue:listen --tries=1` is processing it.
-      If it failed, fix that stage, re-run, then look at `final.mp4`, `thumbnail.png` and the QC results.
-      **Afterwards delete the E2E user and project** (and its storage dir `storage/app/private/projects/<id>`).
+### Done 2026-11-18 (second session, Windows 11 machine: PHP 8.4.26, Node 24.16, Chrome 157, FFmpeg via winget)
+- [x] Project now also runs on **Windows**. Fixes: `SandboxProcess` keeps the non-secret Windows system variables
+      (Node aborted with exit 134 without `SystemRoot`; Chrome refused remote debugging without the real
+      `USERPROFILE`); engine scripts import modules through `pathToFileURL` (Windows absolute paths are not valid
+      ESM specifiers). Linux behaviour is unchanged.
+- [x] **Full render end to end** verified by `tests/Feature/FullRenderPipelineTest.php` on the sync queue with a
+      synthetic tone voice: all 8 chain stages succeed, final MP4 duration matches, technical QC passes, thumbnail +
+      final SRT recorded, a second render reuses every scene segment. (The old Linux E2E user/project lived only in
+      the Linux machine's database; the new database never had them, so there is nothing to delete here.)
+- [x] **Automated tests** (spec §19): 39 tests in `tests/Feature` (fixtures in `tests/Concerns`). Mocked AI via
+      `Http::fake` (Kimi adapter). Covers permissions, project creation, credential encryption, good/bad key tests,
+      rotation, model selection + unsupported capability, usage/cost + idempotency + budgets, SRT parsing,
+      storyboard validation, locked narration (service + HTTP), reorder/boundary rules, editor state, player CSP,
+      undo/redo, queue dispatching (`Bus::fake`), generator failure handling, invalid-code handling, downloads,
+      export QC (real FFmpeg), cleanup. Two real-toolchain tests in group `render`.
+      Example tests deleted. `php artisan test --exclude-group=render` ≈ 10 s; full ≈ 2.5 min.
+- [x] Housekeeping: `motionforge:cleanup` (daily 03:30, `--dry-run`), `MOTIONFORGE_RENDER_CACHE_DAYS` /
+      `retention.render_cache_days` setting; fixed a leak (validator temp dirs were never deleted);
+      Lucide trimmed via `scripts/build-icons.mjs` (runs before build/dev): app JS 555 kB → 111 kB.
+- [x] Docs: `docs/deployment.md` (Ubuntu + Windows), `docs/architecture.md` rewritten, README updated.
 
 ### Remaining work (in order)
-1. Finish/verify the full render (above). Then render from the scene editor ("Render scene") and verify a cached reuse.
-2. Scene editor in a real browser: player iframe messaging, WaveSurfer waveform, Sortable reorder (reverts on
-   invalid order), undo/redo version switching, timing ± cue, code edit → ValidateSceneCodeJob.
-3. Automated tests (spec §19), with mocked AI (`Http::fake`; Claude via the `ClaudeProvider` client factory closure):
-   project creation, credential encryption, connection test (good/bad key), model selection + unsupported capability,
-   storyboard validation, locked-narration protection, scene generation, queue dispatching (`Bus::fake`),
-   rendering failure handling, usage/cost tracking, unauthorized downloads, permissions, final export validation.
-   Optional real-provider test gated by env vars (e.g. `MF_TEST_ANTHROPIC_KEY`); never report mocked runs as real.
-   Plus a real short Kikitoons render integration test (needs Chrome + FFmpeg; skip if unavailable).
-   Delete `tests/Feature/ExampleTest.php` / `tests/Unit/ExampleTest.php` (they reference removed routes).
-4. AI path end to end with a real key, once the user adds one: storyboard JSON schema accepted by each provider
-   (OpenAI strict mode needs all-required + additionalProperties:false, as the schemas already are), scene code quality.
-5. Native video (Mode B) with a Gemini key: submit/poll/download/approve/assemble; check the inline-base64 response shape.
-6. Hybrid (Mode C): per-scene source toggle + ASS subtitles burned over mixed Canvas/AI clips.
-7. AI image generation is NOT implemented (capability is listed, no adapter). Add one (e.g. Gemini image model)
-   only after verifying its API, or keep it documented as not available.
-8. Housekeeping: `motionforge:cleanup` scheduled command (old `storage/app/tmp/render/*`, stale previews);
-   trim the Lucide bundle (import only the icons used; the bundle is currently >500 kB); data-retention setting.
-9. Docs: Ubuntu deployment guide (php-fpm/nginx, Supervisor for `queue:work` ×2, Chrome + FFmpeg + fonts,
-   optional Redis/Horizon, optional Docker sandbox for the renderer), update `docs/architecture.md`.
-10. Final report to the user per spec §21: files, decisions, tests run with real output, unresolved issues.
+1. Scene editor **in a real browser** (server side is tested): player iframe messaging, WaveSurfer waveform,
+   Sortable drag (reverts on invalid order), timing ± cue buttons, code edit → ValidateSceneCodeJob.
+2. AI path end to end with a real key, once the user adds one: storyboard JSON schema accepted by each provider
+   (OpenAI strict mode needs all-required + additionalProperties:false, as the schemas already are), scene code
+   quality. Add optional real-provider tests gated by env vars (e.g. `MF_TEST_ANTHROPIC_KEY`); never report mocked
+   runs as real. Claude can be mocked through the `ClaudeProvider` client-factory closure.
+3. Native video (Mode B) with a Gemini key: submit/poll/download/approve/assemble; check the inline-base64 shape.
+4. Hybrid (Mode C): per-scene source toggle + ASS subtitles burned over mixed Canvas/AI clips (needs a Gemini key
+   to produce real clips).
+5. AI image generation is NOT implemented (capability is listed, no adapter). Add one only after verifying its API,
+   or keep it documented as not available.
+6. Final report to the user per spec §21: files, decisions, tests run with real output, unresolved issues.
 
 ## Known limitations (tell the user; don't hide)
 - The engine is a compatible re-implementation, not the original Kikitoons engine.
@@ -107,3 +110,5 @@ Production Studio" spec (22 sections) plus the `kikitoons-video-maker-v1` skill
   placeholder that must be edited.
 - Render speed ≈ 150–200 ms/frame per worker (CPU canvas): about 7–10 min for a 2:30 video with 2 workers.
 - Python tools from the skill (snap.py, render.py, …) are replaced by Node equivalents (no pip on this machine).
+- Local preview login in README (`admin@motionforge.local`) exists only in the Linux machine's database. On a fresh
+  database, register in the browser: the first account becomes admin.

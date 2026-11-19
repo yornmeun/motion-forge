@@ -10,11 +10,11 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const acorn = await import(path.join(here, '../../node_modules/acorn/dist/acorn.mjs'));
-const walk = await import(path.join(here, '../../node_modules/acorn-walk/dist/walk.mjs'));
+const acorn = await import(pathToFileURL(path.join(here, '../../node_modules/acorn/dist/acorn.mjs')).href);
+const walk = await import(pathToFileURL(path.join(here, '../../node_modules/acorn-walk/dist/walk.mjs')).href);
 
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const code = String(input.code ?? '');

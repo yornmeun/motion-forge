@@ -3,6 +3,9 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "icons": "node scripts/build-icons.mjs",
+        "prebuild": "node scripts/build-icons.mjs",
+        "predev": "node scripts/build-icons.mjs",
         "build": "vite build",
         "dev": "vite"
     },

@@ -27,6 +27,14 @@ return [
     'disk' => env('MOTIONFORGE_DISK', 'local'),
 
     /*
+    | Data retention for regenerable intermediates (motionforge:cleanup, daily). Admins can override
+    | the value at runtime with the `retention.render_cache_days` system setting.
+    */
+    'retention' => [
+        'render_cache_days' => (int) env('MOTIONFORGE_RENDER_CACHE_DAYS', 30),
+    ],
+
+    /*
     | Output defaults (Kikitoons skill).
     */
     'defaults' => [

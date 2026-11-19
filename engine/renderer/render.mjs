@@ -20,10 +20,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { chromium } = await import(path.join(here, '../../node_modules/playwright-core/index.mjs'));
+const { chromium } = await import(pathToFileURL(path.join(here, '../../node_modules/playwright-core/index.mjs')).href);
 
 const emit = o => process.stdout.write(JSON.stringify(o) + '\n');
 const encoders = [];

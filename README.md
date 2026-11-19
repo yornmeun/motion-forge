@@ -22,13 +22,27 @@ composer dev                    # web server, queue listener, logs, Vite
 
 Open http://127.0.0.1:8000. If you change `APP_KEY` or other `.env` values while `composer dev` is running, restart it: running processes keep the environment they started with.
 
-Rendering needs these `.env` entries (already set on this machine):
+Rendering needs FFmpeg, FFprobe, Node and Chrome. Point MotionForge at them in `.env` when they are not on `PATH` / at the default Chrome location, for example:
 
 ```
-MOTIONFORGE_FFMPEG=/home/meun/Public/soundex/bin/ffmpeg
-MOTIONFORGE_FFPROBE=/home/meun/Public/soundex/bin/ffprobe
+# Linux
+MOTIONFORGE_FFMPEG=/usr/bin/ffmpeg
+MOTIONFORGE_FFPROBE=/usr/bin/ffprobe
 MOTIONFORGE_CHROME=/usr/bin/google-chrome
+# Windows (single quotes: backslashes are escapes inside double quotes)
+MOTIONFORGE_CHROME='C:\Program Files\Google\Chrome\Application\chrome.exe'
 ```
+
+Server setup (nginx, Supervisor workers, scheduler) and Windows notes: [docs/deployment.md](docs/deployment.md). Architecture: [docs/architecture.md](docs/architecture.md).
+
+## Tests
+
+```bash
+php artisan test                         # everything, incl. real Chrome + FFmpeg renders (~3 min)
+php artisan test --exclude-group=render  # fast suite, AI calls mocked
+```
+
+AI providers are mocked with `Http::fake` in the suite; passing tests say nothing about live provider behaviour.
 
 ## AI providers
 
