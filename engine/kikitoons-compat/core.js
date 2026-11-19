@@ -12,6 +12,10 @@
 'use strict';
 
 const W = 1080, H = 1920, OW = 9;
+/* Screen (canvas) size. The world above stays 1080x1920 so every background and character keeps its layout;
+   a landscape story (MF_SIZE = {w: 1920, h: 1080}, set by the renderer) only changes what the camera frames. */
+const SW = (typeof MF_SIZE !== 'undefined' && MF_SIZE.w) || W, SH = (typeof MF_SIZE !== 'undefined' && MF_SIZE.h) || H;
+const LANDSCAPE = SW > SH;
 const INK = '#16131a';
 
 /* ---------- maths ---------- */
@@ -57,7 +61,7 @@ function cam(ctx, c = {}) {
   const z = c.z ?? 1, cx = c.cx ?? W / 2, cy = c.cy ?? H / 2, rot = c.rot ?? 0;
   __cam = { z, cx, cy, rot, sx: c.sx ?? 0, sy: c.sy ?? 0 };
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.translate(W / 2 + __cam.sx, H / 2 + __cam.sy);
+  ctx.translate(SW / 2 + __cam.sx, SH / 2 + __cam.sy);
   ctx.rotate(rot);
   ctx.scale(z, z);
   ctx.translate(-cx, -cy);
@@ -102,9 +106,9 @@ function camMix(...parts) {
 
 /* ---------- drawing helpers ---------- */
 function fillAll(ctx, color) {
-  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = color; ctx.fillRect(0, 0, W, H); ctx.restore();
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = color; ctx.fillRect(0, 0, SW, SH); ctx.restore();
   // also fill a large world rect for zoomed-out / rotated cameras
-  ctx.save(); ctx.fillStyle = color; ctx.fillRect(-W, -H, W * 3, H * 3); ctx.restore();
+  ctx.save(); ctx.fillStyle = color; ctx.fillRect(-W * 2, -H, W * 5, H * 3); ctx.restore();
 }
 function rr(ctx, x, y, w, h, r) {
   r = Math.min(r, w / 2, h / 2);
@@ -415,12 +419,12 @@ function run(t, speed = 3) {
 /** Over-the-shoulder: big darkened back of head/shoulder at the frame edge (screen space). */
 function ots(ctx, who = 'kiki', side = 'left', o = {}) {
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const x = side === 'left' ? 120 : W - 120;
+  const x = side === 'left' ? 120 : SW - 120;
   ctx.globalAlpha = o.alpha ?? 0.92;
   ctx.filter = `blur(${o.blur ?? 3}px) brightness(0.35)`;
-  if (who === 'kiki') drawChar(ctx, kiki({ x, y: H - 300, s: 2.6, back: true, noLegs: true, flip: side === 'right' }));
-  else if (who === 'suit') drawSuit(ctx, { x, y: H - 280, s: 2.4, back: true, noLegs: true, ...o.char });
-  else drawChar(ctx, { x, y: H - 300, s: 2.6, back: true, noLegs: true, ...o.char });
+  if (who === 'kiki') drawChar(ctx, kiki({ x, y: SH - 300, s: 2.6, back: true, noLegs: true, flip: side === 'right' }));
+  else if (who === 'suit') drawSuit(ctx, { x, y: SH - 280, s: 2.4, back: true, noLegs: true, ...o.char });
+  else drawChar(ctx, { x, y: SH - 300, s: 2.6, back: true, noLegs: true, ...o.char });
   ctx.restore();
 }
 

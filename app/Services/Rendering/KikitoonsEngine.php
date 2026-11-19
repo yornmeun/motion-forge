@@ -5,8 +5,10 @@ namespace App\Services\Rendering;
 use App\Contracts\AnimationEngineInterface;
 use App\Models\Project;
 use App\Models\Scene;
+use App\Models\SceneVersion;
 use App\Services\Production\SrtParser;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -64,7 +66,7 @@ class KikitoonsEngine implements AnimationEngineInterface
     /** Render one frame from the middle of the scene with candidate code; reports runtime errors. */
     public function probeCode(Scene $scene, string $code): array
     {
-        $version = clone ($scene->currentVersion ?? new \App\Models\SceneVersion(['plan' => []]));
+        $version = clone ($scene->currentVersion ?? new SceneVersion(['plan' => []]));
         $version->code = $code;
         $copy = clone $scene;
         $copy->setRelation('currentVersion', $version);
@@ -125,7 +127,8 @@ class KikitoonsEngine implements AnimationEngineInterface
             $out = $work.'/scene.mp4';
             $res = $this->run($this->writeStory($scenes, $project, $work, 0), [
                 'mode' => 'video', 'from' => $scene->start_time, 'to' => $scene->end_time, 'out' => $out,
-                'fps' => $project->frame_rate, 'preset' => 'medium', 'crf' => 19,
+                'fps' => $project->frame_rate, 'preset' => 'veryfast', 'crf' => 19,
+                'workers' => max(1, (int) config('motionforge.render_workers', 2)),
             ], $work, (int) config('motionforge.scene_timeout_sec', 900), $onProgress);
             if (! $res['ok']) {
                 throw new SceneRenderException($res['message'], $res['scene'] ?? null);
@@ -139,7 +142,7 @@ class KikitoonsEngine implements AnimationEngineInterface
     }
 
     /** Render a single-scene story to a still (used for thumbnails). */
-    public function renderStill(string $storyJs, float $at, string $outAbs, ?string $capsJs = null): void
+    public function renderStill(string $storyJs, float $at, string $outAbs, ?string $capsJs = null, int $width = 1080, int $height = 1920): void
     {
         $work = $this->tmp('still');
         try {
@@ -147,7 +150,7 @@ class KikitoonsEngine implements AnimationEngineInterface
             if ($capsJs) {
                 file_put_contents($work.'/caps.js', $capsJs);
             }
-            $res = $this->run(['story' => $work.'/story.js', 'caps' => $capsJs ? $work.'/caps.js' : null], ['mode' => 'still', 'at' => $at, 'out' => $work.'/still.png'], $work, 120);
+            $res = $this->run(['story' => $work.'/story.js', 'caps' => $capsJs ? $work.'/caps.js' : null, 'width' => $width, 'height' => $height], ['mode' => 'still', 'at' => $at, 'out' => $work.'/still.png'], $work, 120);
             if (! $res['ok']) {
                 throw new RuntimeException($res['message']);
             }
@@ -165,8 +168,12 @@ class KikitoonsEngine implements AnimationEngineInterface
         $parts = [$this->engineHash(), $scene->start_time, $scene->end_time, $scene->currentVersion?->code, json_encode($scene->plan()), $scene->project->frame_rate];
         $prev = $scenes[$i - 1] ?? null;
         $next = $scenes[$i + 1] ?? null;
-        if ($prev && ($scene->plan()['transition'] ?? 'none') !== 'none') $parts[] = $prev->currentVersion?->code;
-        if ($next && ($next->plan()['transition'] ?? 'none') !== 'none') $parts[] = $next->currentVersion?->code.$next->start_time;
+        if ($prev && ($scene->plan()['transition'] ?? 'none') !== 'none') {
+            $parts[] = $prev->currentVersion?->code;
+        }
+        if ($next && ($next->plan()['transition'] ?? 'none') !== 'none') {
+            $parts[] = $next->currentVersion?->code.$next->start_time;
+        }
         $package = $scene->project->approvedPackage;
         if ($package) {
             $parts[] = $package->srt_hash;
@@ -176,14 +183,14 @@ class KikitoonsEngine implements AnimationEngineInterface
         return substr(hash('sha256', implode('|', array_map('strval', $parts))), 0, 20);
     }
 
-    /** Writes story.js + caps.js for the given scenes; returns file paths. */
+    /** Writes story.js + caps.js for the given scenes; returns file paths and the project's frame size. */
     public function writeStory(Collection $scenes, Project $project, string $work, ?float $offset = null): array
     {
         $offset ??= (float) ($scenes->first()?->start_time ?? 0);
         $hybridCaptions = $project->production_mode->value !== 'kikitoons';
         file_put_contents($work.'/story.js', $this->assembler->story($scenes, [
             'offset' => $offset, 'fps' => $project->frame_rate, 'no_captions' => $hybridCaptions,
-            'caption_y' => $project->setting('subtitles.y', 1344),
+            'caption_y' => $project->captionY(),
         ]));
         $caps = null;
         $package = $project->approvedPackage;
@@ -193,7 +200,7 @@ class KikitoonsEngine implements AnimationEngineInterface
             $caps = $work.'/caps.js';
         }
 
-        return ['story' => $work.'/story.js', 'caps' => $caps];
+        return ['story' => $work.'/story.js', 'caps' => $caps, 'width' => (int) $project->width, 'height' => (int) $project->height];
     }
 
     /**
@@ -203,8 +210,9 @@ class KikitoonsEngine implements AnimationEngineInterface
     {
         $job = array_merge([
             'engineDir' => $this->engineDir(), 'storyFile' => $files['story'], 'capsFile' => $files['caps'] ?? null,
+            'width' => $files['width'] ?? 1080, 'height' => $files['height'] ?? 1920,
             'fontFile' => config('motionforge.font'), 'ffmpeg' => config('motionforge.ffmpeg'), 'chrome' => config('motionforge.chrome'),
-            'frameTimeoutMs' => (int) config('motionforge.frame_timeout_ms', 8000), 'totalTimeoutSec' => $timeout,
+            'frameTimeoutMs' => (int) config('motionforge.frame_timeout_ms', 30000), 'totalTimeoutSec' => $timeout,
         ], $job);
         file_put_contents($work.'/job.json', json_encode($job));
         $p = SandboxProcess::make([config('motionforge.node'), config('motionforge.renderer'), $work.'/job.json'], $work, $timeout + 30);
@@ -219,7 +227,9 @@ class KikitoonsEngine implements AnimationEngineInterface
                 $line = substr($buffer, 0, $nl);
                 $buffer = substr($buffer, $nl + 1);
                 $msg = json_decode($line, true);
-                if (! is_array($msg)) continue;
+                if (! is_array($msg)) {
+                    continue;
+                }
                 $last = $msg;
                 if (($msg['type'] ?? '') === 'progress' && $onProgress) {
                     $onProgress((int) $msg['frame'], (int) $msg['total']);
@@ -248,7 +258,7 @@ class KikitoonsEngine implements AnimationEngineInterface
     public function cleanup(string $dir): void
     {
         if (str_starts_with($dir, storage_path('app/tmp/render/'))) {
-            \Illuminate\Support\Facades\File::deleteDirectory($dir);
+            File::deleteDirectory($dir);
         }
     }
 }

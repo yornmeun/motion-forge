@@ -2,7 +2,9 @@
 
 namespace App\Services\Production;
 
+use App\Enums\AICapability;
 use App\Enums\JobStatus;
+use App\Enums\ProductionMode;
 use App\Enums\ProductionStatus;
 use App\Jobs\AlignVoiceoverJob;
 use App\Jobs\FinalizeProductionJob;
@@ -22,6 +24,8 @@ use App\Models\Project;
 use App\Models\RenderJob;
 use App\Models\Scene;
 use App\Models\User;
+use App\Services\AI\ProviderRouter;
+use App\Services\Media\Ffmpeg;
 use Illuminate\Bus\Batch;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -48,19 +52,90 @@ class ProductionWorkflow
         return [GenerationJob::create(['project_id' => $project->id, 'scene_id' => $scene?->id, 'user_id' => $user?->id, 'type' => $type, 'status' => JobStatus::Queued, 'stage' => 'Queued', 'idempotency_key' => $key, 'payload' => $payload ?: null]), true];
     }
 
-    public function validatePackage(ProductionPackage $package, User $user): GenerationJob
+    public function validatePackage(ProductionPackage $package, User $user, array $options = []): GenerationJob
     {
-        [$job, $new] = $this->track($package->project, null, $user, 'validate_package', 'validate:'.$package->id);
-        if ($new) ValidateProductionPackageJob::dispatch($package->id, $job->id);
+        [$job, $new] = $this->track($package->project, null, $user, 'validate_package', 'validate:'.$package->id, $options);
+        if ($new) {
+            ValidateProductionPackageJob::dispatch($package->id, $job->id, $user->id, $options);
+        }
 
         return $job;
+    }
+
+    public function automaticProductionBlocker(Project $project, User $user): ?string
+    {
+        if ($project->scenes()->whereHas('assets')->exists()) {
+            return 'This project already has scene assets. Review or remove those scenes before automatic production can replace them.';
+        }
+
+        $router = app(ProviderRouter::class);
+        if ($project->generation_strategy === 'ai') {
+            try {
+                $router->forProject($project, $user, AICapability::ScenePlanning);
+                if ($project->production_mode !== ProductionMode::NativeVideo) {
+                    $router->forProject($project, $user, AICapability::AnimationCode);
+                }
+            } catch (\Throwable $e) {
+                return 'Automatic production needs a connected planning'.($project->production_mode === ProductionMode::NativeVideo ? '' : ' and animation-code').' model: '.$e->getMessage();
+            }
+        }
+
+        if ($project->production_mode === ProductionMode::NativeVideo) {
+            try {
+                $router->forProject($project, $user, AICapability::NativeVideo);
+            } catch (\Throwable $e) {
+                return 'Automatic production needs a connected native-video model: '.$e->getMessage();
+            }
+        }
+
+        return null;
+    }
+
+    public function startAutomaticProduction(Project $project, User $user, array $options = []): GenerationJob
+    {
+        if (! $project->approvedPackage) {
+            throw new RuntimeException('Approve a valid production package before generating the video.');
+        }
+        if ($blocker = $this->automaticProductionBlocker($project, $user)) {
+            throw new RuntimeException($blocker);
+        }
+
+        return $this->generateStoryboard($project, $user, array_merge([
+            'strategy' => $project->generation_strategy,
+            'continue' => true,
+            'auto_render' => true,
+        ], $options));
+    }
+
+    public function startRenderWhenReady(Project $project, User $user): bool
+    {
+        return Cache::lock('automatic-render:'.$project->id, 30)->block(5, function () use ($project, $user): bool {
+            $project->refresh();
+            if ($project->renderJobs()->where('type', 'full')->whereIn('status', [JobStatus::Queued, JobStatus::Running])->exists()) {
+                return true;
+            }
+
+            if ($project->generationJobs()->whereIn('type', ['storyboard', 'scene_code', 'video_clip'])->whereIn('status', [JobStatus::Queued, JobStatus::Running])->exists()) {
+                return false;
+            }
+
+            if ($this->renderBlockers($project)) {
+                return false;
+            }
+
+            $this->startRender($project, $user);
+
+            return true;
+        });
     }
 
     public function generateStoryboard(Project $project, User $user, array $options = []): GenerationJob
     {
         $package = $this->packages->assertLocked($project);
         [$job, $new] = $this->track($project, null, $user, 'storyboard', "storyboard:{$project->id}:{$package->version}", $options);
-        if ($new) GenerateStoryboardJob::dispatch($project->id, $user->id, $job->id, $options);
+        if ($new) {
+            GenerateStoryboardJob::dispatch($project->id, $user->id, $job->id, $options);
+        }
 
         return $job;
     }
@@ -71,22 +146,54 @@ class ProductionWorkflow
             $this->packages->assertLocked($project);
         }
         $jobs = [];
+        $videoJobs = [];
+        foreach ($project->scenes()->where('source', 'ai_video')->get() as $scene) {
+            if ($scene->approvedClip()) {
+                continue;
+            }
+            [$job, $new] = $this->track($project, $scene, $user, 'video_clip', "video_clip:{$scene->id}", $options);
+            if ($new) {
+                $videoJobs[] = [$scene, $job];
+            }
+        }
         foreach ($project->scenes()->where('source', 'canvas')->get() as $scene) {
             [$job, $new] = $this->track($project, $scene, $user, 'scene_code', "scene_code:{$scene->id}", $options);
-            if ($new) $jobs[] = new GenerateSceneCodeJob($scene->id, $user->id, $job->id, collect($options)->except(['continue'])->all());
+            if ($new) {
+                $jobs[] = new GenerateSceneCodeJob($scene->id, $user->id, $job->id, collect($options)->except(['continue'])->all());
+            }
         }
+        if ($jobs || $videoJobs) {
+            $project->update(['status' => ProductionStatus::Generating]);
+        }
+        foreach ($videoJobs as [$scene, $job]) {
+            GenerateVideoClipJob::dispatch($scene->id, $user->id, $job->id, $options);
+        }
+        if (! $jobs && ! $videoJobs) {
+            if ($options['auto_render'] ?? false) {
+                $this->startRenderWhenReady($project, $user);
+            }
+
+            return null;
+        }
+        $projectId = $project->id;
+        $userId = $user->id;
+
         if (! $jobs) {
             return null;
         }
-        $project->update(['status' => ProductionStatus::Generating]);
-        $projectId = $project->id;
 
         return Bus::batch($jobs)->name("scene-code:{$project->id}")->allowFailures()
-            ->finally(function () use ($projectId) {
+            ->finally(function () use ($projectId, $userId, $options) {
                 $p = Project::find($projectId);
                 if ($p && $p->status === ProductionStatus::Generating) {
                     $p->update(['status' => ProductionStatus::ReadyForReview]);
                     $p->log('scenes.generated', 'Scene generation finished; review the previews.');
+                }
+                if ($p && ($options['auto_render'] ?? false)) {
+                    $user = User::find($userId);
+                    if ($user) {
+                        app(self::class)->startRenderWhenReady($p, $user);
+                    }
                 }
             })->dispatch();
     }
@@ -99,12 +206,16 @@ class ProductionWorkflow
         }
         if ($scene->source === 'ai_video') {
             [$job, $new] = $this->track($project, $scene, $user, 'video_clip', "video_clip:{$scene->id}", $options);
-            if ($new) GenerateVideoClipJob::dispatch($scene->id, $user->id, $job->id, $options);
+            if ($new) {
+                GenerateVideoClipJob::dispatch($scene->id, $user->id, $job->id, $options);
+            }
 
             return $job;
         }
         [$job, $new] = $this->track($project, $scene, $user, 'scene_code', "scene_code:{$scene->id}", $options);
-        if ($new) GenerateSceneCodeJob::dispatch($scene->id, $user->id, $job->id, $options);
+        if ($new) {
+            GenerateSceneCodeJob::dispatch($scene->id, $user->id, $job->id, $options);
+        }
 
         return $job;
     }
@@ -113,7 +224,9 @@ class ProductionWorkflow
     {
         $this->assertSceneRenderable($scene);
         [$job, $new] = $this->track($scene->project, $scene, $user, 'render_scene', "render_scene:{$scene->id}");
-        if ($new) RenderSceneJob::dispatch($scene->id, $job->id);
+        if ($new) {
+            RenderSceneJob::dispatch($scene->id, $job->id);
+        }
 
         return $job;
     }
@@ -140,7 +253,7 @@ class ProductionWorkflow
                 $problems[] = $e->getMessage();
             }
         }
-        if (! app(\App\Services\Media\Ffmpeg::class)->available()) {
+        if (! app(Ffmpeg::class)->available()) {
             $problems[] = 'FFmpeg is not available (set MOTIONFORGE_FFMPEG).';
         }
 
@@ -150,7 +263,9 @@ class ProductionWorkflow
     public function assertSceneRenderable(Scene $scene): void
     {
         if ($scene->source === 'ai_video') {
-            if (! $scene->approvedClip()) throw new RuntimeException("Scene {$scene->sequence}: approve an AI clip first.");
+            if (! $scene->approvedClip()) {
+                throw new RuntimeException("Scene {$scene->sequence}: approve an AI clip first.");
+            }
 
             return;
         }
@@ -172,7 +287,9 @@ class ProductionWorkflow
         $rj = RenderJob::create(['project_id' => $project->id, 'user_id' => $user->id, 'type' => 'full', 'status' => JobStatus::Queued, 'stage' => 'Queued', 'scene_ids' => $scenes->pluck('id')->all()]);
         $sceneJobs = [];
         foreach ($scenes as $scene) {
-            if (RenderSceneJob::segmentFor($scene)) continue; // unchanged scenes are reused
+            if (RenderSceneJob::segmentFor($scene)) {
+                continue;
+            } // unchanged scenes are reused
             [$job] = $this->track($project, $scene, $user, 'render_scene', "render_scene:{$scene->id}:{$rj->id}", ['render_job_id' => $rj->id, 'frames' => (int) round($scene->duration() * $project->frame_rate)]);
             $sceneJobs[] = new RenderSceneJob($scene->id, $job->id, $rj->id);
         }

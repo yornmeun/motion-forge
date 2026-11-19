@@ -187,14 +187,15 @@ function plant(ctx, x, y, s = 1, silhouette = null) {
 }
 /** Dark foreground silhouettes: 'doorframe' | 'plant' | 'desk' | 'locker' | 'shoulder'. */
 function fgSilhouette(ctx, kind = 'doorframe', side = 'left') {
+  // screen space: x from the frame edges, y scaled from the 1920-tall reference frame
   ctx.save(); ctx.fillStyle = '#07070a';
-  const L = side === 'left';
+  const L = side === 'left', y = v => v * SH / 1920;
   switch (kind) {
-    case 'doorframe': ctx.fillRect(L ? -400 : W - 80, -H, 480, H * 3); break;
-    case 'plant': plant(ctx, L ? -10 : W + 10, 1700, 1.9, '#07070a'); break;
-    case 'desk': ctx.fillRect(-W, 1640, W * 3, 600); break;
-    case 'locker': ctx.fillRect(L ? -300 : W - 120, -H, 420, H * 3); break;
-    case 'shoulder': ctx.beginPath(); ctx.ellipse(L ? 60 : W - 60, 1900, 420, 520, 0, 0, Math.PI * 2); ctx.fill(); break;
+    case 'doorframe': ctx.fillRect(L ? -400 : SW - 80, -SH, 480, SH * 3); break;
+    case 'plant': plant(ctx, L ? -10 : SW + 10, y(1700), 1.9 * Math.max(0.6, SH / 1920), '#07070a'); break;
+    case 'desk': ctx.fillRect(-SW, y(1640), SW * 3, 600); break;
+    case 'locker': ctx.fillRect(L ? -300 : SW - 120, -SH, 420, SH * 3); break;
+    case 'shoulder': ctx.beginPath(); ctx.ellipse(L ? 60 : SW - 60, y(1900), 420, 520, 0, 0, Math.PI * 2); ctx.fill(); break;
   }
   ctx.restore();
 }
@@ -204,13 +205,13 @@ function flicker(t, seed = 0) {
 }
 function rain(ctx, t, amt = 1) {
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.strokeStyle = 'rgba(200,210,230,0.28)'; ctx.lineWidth = 2;
-  for (let i = 0; i < 160 * amt; i++) { const x = (hash(i) * W * 1.2 + t * 220) % (W * 1.2) - 60, y = (hash(i + 99) * H + t * 2400) % H; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 12, y + 60); ctx.stroke(); }
+  for (let i = 0; i < 160 * amt; i++) { const x = (hash(i) * SW * 1.2 + t * 220) % (SW * 1.2) - 60, y = (hash(i + 99) * SH + t * 2400) % SH; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 12, y + 60); ctx.stroke(); }
   ctx.restore();
 }
 function dust(ctx, t, amt = 1, beam = null) {
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = 'rgba(240,230,200,0.5)';
   for (let i = 0; i < 70 * amt; i++) {
-    const x = hash(i) * W + noise(t * 0.3, i) * 60, y = (hash(i + 7) * H + t * (8 + hash(i) * 14)) % H;
+    const x = hash(i) * SW + noise(t * 0.3, i) * 60, y = (hash(i + 7) * SH + t * (8 + hash(i) * 14)) % SH;
     if (beam && (x < beam[0] || x > beam[1])) continue;
     ctx.globalAlpha = 0.15 + hash(i + 4) * 0.35; ctx.beginPath(); ctx.arc(x, y, 1.5 + hash(i + 2) * 2.5, 0, Math.PI * 2); ctx.fill();
   }
@@ -218,7 +219,7 @@ function dust(ctx, t, amt = 1, beam = null) {
 }
 function fog(ctx, t, amt = 0.3, col = '200,205,215') {
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-  for (let i = 0; i < 4; i++) { const g = ctx.createRadialGradient(W * hash(i) + noise(t * 0.1, i) * 200, H * (0.5 + 0.3 * hash(i + 1)), 50, W * hash(i), H * 0.6, 900); g.addColorStop(0, `rgba(${col},${amt * 0.5})`); g.addColorStop(1, `rgba(${col},0)`); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
+  for (let i = 0; i < 4; i++) { const g = ctx.createRadialGradient(SW * hash(i) + noise(t * 0.1, i) * 200, SH * (0.5 + 0.3 * hash(i + 1)), 50, SW * hash(i), SH * 0.6, 900); g.addColorStop(0, `rgba(${col},${amt * 0.5})`); g.addColorStop(1, `rgba(${col},0)`); ctx.fillStyle = g; ctx.fillRect(0, 0, SW, SH); }
   ctx.restore();
 }
 

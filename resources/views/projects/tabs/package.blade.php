@@ -28,6 +28,7 @@
                         <form method="POST" action="{{ route('preproduction.package', $project) }}" enctype="multipart/form-data" class="mt-5 grid gap-3 border-t border-line/60 pt-5">
                             @csrf
                             <x-upload name="voiceover" label="Voiceover recorded from the approved narration" accept=".mp3,.wav,.m4a,.aac,.ogg,.flac" hint="Subtitles are timed from pauses in the voice (approximate) and validated against the narration." />
+                            <input type="hidden" name="auto_produce" value="1">
                             <div><button class="btn-primary">Prepare production package</button></div>
                         </form>
                     @endif
@@ -45,6 +46,8 @@
                     <div class="flex items-center gap-2 text-sm text-muted" x-data x-init="setTimeout(() => location.reload(), 4000)"><span class="size-2 animate-pulse rounded-full bg-accent"></span>Validating script, SRT and audio…</div>
                 @endif
                 @if ($r)
+                    @if (! empty($r['auto_production_message']))<p class="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-amber-200">Automatic production is waiting: {{ $r['auto_production_message'] }}</p>@endif
+                    @if (! empty($r['srt_timing_adjustment']))<p class="mt-3 rounded-lg border border-primary/30 bg-primary/10 p-3 text-sm text-muted">Subtitle timings were automatically aligned to the voiceover. The subtitle words were kept unchanged; timing is approximate.</p>@endif
                     <ul class="grid gap-2">
                         @foreach ($r['checks'] as $c)
                             <li class="flex gap-3 rounded-lg bg-bg/50 px-3 py-2 text-sm"><x-ui.status :status="$c['status']" class="h-fit" /><div><div class="font-medium">{{ $c['label'] }}</div><div class="text-muted">{{ $c['message'] }}</div></div></li>
@@ -65,7 +68,7 @@
                 @endif
                 <div class="mt-4 flex flex-wrap gap-2">
                     @unless ($package->isLocked())
-                        <form method="POST" action="{{ route('packages.validate', [$project, $package]) }}">@csrf<button class="btn-secondary btn-sm"><i data-lucide="refresh-cw" class="size-4"></i>Re-validate</button></form>
+                        <form method="POST" action="{{ route('packages.validate', [$project, $package]) }}">@csrf<button class="btn-secondary btn-sm"><i data-lucide="refresh-cw" class="size-4"></i>{{ ! empty($r['auto_produce']) ? 'Align subtitles and make video' : 'Re-validate' }}</button></form>
                     @endunless
                     @if ($package->status === 'valid')
                         @can('approve', $project)
@@ -96,15 +99,16 @@
             <p class="mb-4 text-xs text-muted">{{ $package ? 'Only the files you upload are replaced; the rest carry over from v'.$package->version.'. A new version must be validated and approved again.' : 'Filenames may differ; files are mapped by type.' }}</p>
             <form method="POST" action="{{ route('packages.store', $project) }}" enctype="multipart/form-data" class="grid gap-3" x-data="{ busy: false }" @submit="busy = true">
                 @csrf
-                <x-upload name="archive" label="ZIP package" accept=".zip" />
-                <div class="text-center text-xs text-muted">or individual files</div>
-                <x-upload name="story" label="story_locked.md" accept=".md,.txt" />
-                <x-upload name="narration" label="narration.txt" accept=".txt" />
-                <x-upload name="srt" label="story.srt" accept=".srt" />
-                <x-upload name="voiceover" label="Voiceover" accept=".mp3,.wav,.m4a,.aac,.ogg,.flac" />
-                <x-upload name="characters[]" label="Character references" accept="image/*" multiple />
-                <div><label class="label">Production notes</label><textarea name="notes" rows="3" class="input" placeholder="Optional. 'Advice: …' sets the end-card line.">{{ $package?->notes }}</textarea></div>
-                <button class="btn-primary" :disabled="busy"><span x-text="busy ? 'Uploading…' : 'Upload and validate'"></span></button>
+                <input type="hidden" name="auto_produce" value="1">
+                <x-upload name="story" label="Story (.md or .txt)" accept=".md,.txt" />
+                <x-upload name="narration" label="Narration (.txt)" accept=".txt" />
+                <x-upload name="srt" label="Subtitles (.srt)" accept=".srt" />
+                <x-upload name="voiceover" label="Voiceover (.wav, .mp3, or audio file)" accept=".mp3,.wav,.m4a,.aac,.ogg,.flac" />
+                <details class="rounded-lg border border-line p-3 text-sm">
+                    <summary class="cursor-pointer text-muted">Have a ZIP package?</summary>
+                    <x-upload name="archive" label="Package ZIP" accept=".zip" hint="The ZIP should contain the same four files." />
+                </details>
+                <button class="btn-primary" :disabled="busy"><span x-text="busy ? 'Uploading…' : 'Upload files and make video'"></span></button>
             </form>
         </section>
         @if ($files->where('role', 'character_ref')->isNotEmpty())

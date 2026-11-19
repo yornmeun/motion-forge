@@ -19,8 +19,10 @@ return [
     'ffmpeg' => env('MOTIONFORGE_FFMPEG', 'ffmpeg'),
     'ffprobe' => env('MOTIONFORGE_FFPROBE', 'ffprobe'),
     'chrome' => env('MOTIONFORGE_CHROME', '/usr/bin/google-chrome'),
+    // Parallel Chrome pages per scene render. Each uses roughly one CPU core and 250 MB of memory.
     'render_workers' => (int) env('MOTIONFORGE_RENDER_WORKERS', 2),
-    'frame_timeout_ms' => (int) env('MOTIONFORGE_FRAME_TIMEOUT_MS', 8000),
+    // Catches infinite loops in scene code; generous because a busy machine can take seconds per frame.
+    'frame_timeout_ms' => (int) env('MOTIONFORGE_FRAME_TIMEOUT_MS', 30000),
     'scene_timeout_sec' => (int) env('MOTIONFORGE_SCENE_TIMEOUT_SEC', 900),
     'disk' => env('MOTIONFORGE_DISK', 'local'),
 
@@ -28,10 +30,11 @@ return [
     | Output defaults (Kikitoons skill).
     */
     'defaults' => [
-        'width' => 1080, 'height' => 1920, 'fps' => 30, 'aspect_ratio' => '9:16',
-        'loudness_lufs' => -14.0, 'min_duration' => 120, 'max_duration' => 180,
-        'safe_zone' => ['x' => [60, 940], 'y' => [220, 1500]],
-        'end_card_seconds' => 4.5,
+        // YouTube landscape (Kikitoons skill V2); VIDEO_EXECUTION.md may override per project
+        'width' => 1920, 'height' => 1080, 'fps' => 30, 'aspect_ratio' => '16:9',
+        'loudness_lufs' => -14.0,
+        'safe_zone' => ['x' => [96, 1824], 'y' => [54, 1026]],
+        'end_card_seconds' => 5.0,
     ],
 
     /*

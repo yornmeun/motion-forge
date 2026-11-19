@@ -1,7 +1,7 @@
 /*
  * MotionForge template director runtime (story-level helper, injected at the top of story files).
  * mfStage(ctx, t, P) stages one planned scene with the documented engine API only:
- *   P = { dur, bg, look, shot, move, emotion, actions[], cast:[{kind, def, name}], seed, fg, kw, slamAt }
+ *   P = { dur, bg, look, shot, move, emotion, actions[], cast:[{kind, def, name}], hero?, seed, fg, kw, slamAt }
  * Used by the "template" generation strategy; AI-generated scenes are written from scratch instead.
  */
 'use strict';
@@ -25,21 +25,28 @@ function mfHas(P, re) { return (P.actions || []).some(a => re.test(String(a).toL
 function mfStage(ctx, t, P) {
   const dur = P.dur || 4, k = clamp(t / dur), seed = P.seed || 1;
   const cast = (P.cast && P.cast.length ? P.cast : [{ kind: 'kiki', name: 'Kiki' }]).slice(0, 3);
-  const xs = cast.length === 1 ? [540] : cast.length === 2 ? [340, 760] : [250, 540, 830];
+  const xs = cast.length === 1 ? [540] : cast.length === 2 ? (LANDSCAPE ? [280, 800] : [340, 760]) : (LANDSCAPE ? [140, 540, 940] : [250, 540, 830]);
   const walking = mfHas(P, /walk|enter|approach|leav/), running = mfHas(P, /\brun|chase|rush/);
   const travel = running ? 160 : walking ? 90 : 0;
   const hero = cast.findIndex(c => c.kind === 'kiki');
-  const hi = hero >= 0 ? hero : 0;
+  const hi = P.hero != null && cast[P.hero] ? P.hero : hero >= 0 ? hero : 0; // P.hero: the story's protagonist (Kiki is then a guest)
   const heroX = xs[hi] + (travel ? lerp(-travel, travel * 0.4, E.io(k)) : 0);
   const heroY = cast[hi].kind === 'suit' ? 800 : 1000;
 
   /* camera from shot + movement */
-  const base = {
+  const base = LANDSCAPE ? {
+    // landscape: the frame is 1920x1080 over the same 1080x1920 world, so shots sit lower and wider
+    wide: { z: 0.98, cy: 1060 }, medium: { z: 1.2, cy: heroY + 160 }, close_up: { z: 1.8, cy: heroY + 60 },
+    extreme_close_up: { z: 2.7, cy: heroY + 12 }, over_the_shoulder: { z: 1.2, cy: heroY + 140 },
+    pov: { z: 0.9, cy: 1000 }, low_angle: { z: 1.15, cy: heroY + 290 }, high_angle: { z: 1.05, cy: heroY - 40 },
+  }[P.shot] || { z: 1.1, cy: heroY + 160 } : {
     wide: { z: 0.95, cy: 980 }, medium: { z: 1.25, cy: heroY + 130 }, close_up: { z: 2.0, cy: heroY + 30 },
     extreme_close_up: { z: 3.0, cy: heroY + 6 }, over_the_shoulder: { z: 1.35, cy: heroY + 90 },
     pov: { z: 1.0, cy: 960 }, low_angle: { z: 1.3, cy: heroY + 300 }, high_angle: { z: 1.15, cy: heroY - 120 },
   }[P.shot] || { z: 1.2, cy: heroY + 100 };
-  const cx = P.shot === 'wide' || P.shot === 'pov' ? 540 : lerp(540, heroX, 0.85);
+  const group = LANDSCAPE && cast.length > 2 && P.shot !== 'close_up' && P.shot !== 'extreme_close_up';
+  const cx = P.shot === 'wide' || P.shot === 'pov' || group ? 540 : lerp(540, heroX, 0.85);
+  if (group) base.z = Math.min(base.z, 1.1); // keep all three characters in frame
   let a = { z: base.z, cx, cy: base.cy, rot: P.shot === 'low_angle' ? -0.03 : P.shot === 'high_angle' ? 0.02 : 0 }, b = { ...a };
   switch (P.move) {
     case 'slow_push_in': b.z = a.z * 1.12; break;
@@ -102,13 +109,17 @@ function mfStage(ctx, t, P) {
     },
   }, focus);
 
-  if (P.shot === 'over_the_shoulder' && cast.length > 1) ots(ctx, hi === 0 ? 'suit' : 'kiki', hi === 0 ? 'right' : 'left');
+  if (P.shot === 'over_the_shoulder' && cast.length === 2) {
+    const other = cast[hi === 0 ? 1 : 0];
+    ots(ctx, other.kind === 'kid' ? 'kid' : other.kind, hi === 0 ? 'right' : 'left', { char: other.def || {} });
+  }
   if (P.shot === 'pov') {
-    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, W, H);
-    phoneDraw(ctx, 540, 860, 3.2 + k * 0.2, { glow: true, screen: '#6d8fae', content: c3 => { if (P.kw) txt(c3, String(P.kw).toUpperCase(), 0, 0, 22, '#0d1220', { maxW: 80 }); } });
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, SW, SH);
+    phoneDraw(ctx, SW / 2, SH * 0.45, (3.2 + k * 0.2) * (LANDSCAPE ? 0.62 : 1), { glow: true, screen: '#6d8fae', content: c3 => { if (P.kw) txt(c3, String(P.kw).toUpperCase(), 0, 0, 22, '#0d1220', { maxW: 80 }); } });
     ctx.restore();
   }
   if (P.look === 'night' || P.look === 'tense') dust(ctx, t, 0.7);
   else dust(ctx, t, 0.4);
   if (P.bg === 'streetNight' && seed % 3 === 0) rain(ctx, t, 0.8);
 }
+

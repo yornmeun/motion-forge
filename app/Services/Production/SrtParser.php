@@ -9,29 +9,83 @@ class SrtParser
     /** @return list<array{index: int, start: float, end: float, text: string}> */
     public function parse(string $srt): array
     {
+        return $this->parseSrt($srt, false);
+    }
+
+    /** @return list<array{index: int, start: float, end: float, text: string}> */
+    public function parseForAlignment(string $srt): array
+    {
+        return $this->parseSrt($srt, true);
+    }
+
+    /**
+     * Line-based SRT reader. A cue starts at each "-->" timing line; a bare number right before it is the
+     * cue number. This also reads files without blank lines between cues, and ignores notes before the
+     * first cue (e.g. "PROVISIONAL — RETIME TO AUDIO"), so they never count as spoken words.
+     *
+     * @return list<array{index: int, start: float, end: float, text: string}>
+     */
+    private function parseSrt(string $srt, bool $allowInvalidTiming): array
+    {
         $srt = str_replace(["\r\n", "\r"], "\n", preg_replace('/^\xEF\xBB\xBF/', '', $srt));
-        $blocks = preg_split("/\n\s*\n/", trim($srt));
+        $lines = array_map('trim', explode("\n", $srt));
+        $timing = '/^(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})/';
         $cues = [];
-        foreach ($blocks as $block) {
-            $lines = array_values(array_filter(array_map('trim', explode("\n", trim($block))), fn ($l) => $l !== ''));
-            if (! $lines) continue;
-            $ti = preg_match('/-->/', $lines[0]) ? 0 : 1;
-            if (! isset($lines[$ti]) || ! preg_match('/(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})/', $lines[$ti], $m)) {
-                throw new InvalidArgumentException('Malformed SRT block: '.mb_substr($block, 0, 80));
+        $current = null;
+        foreach ($lines as $i => $line) {
+            if (preg_match($timing, $line, $m)) {
+                if ($current) {
+                    $cues[] = $this->cue($current, count($cues), $allowInvalidTiming);
+                }
+                $current = ['m' => $m, 'text' => []];
+
+                continue;
             }
-            $start = $m[1] * 3600 + $m[2] * 60 + $m[3] + ((int) str_pad($m[4], 3, '0')) / 1000;
-            $end = $m[5] * 3600 + $m[6] * 60 + $m[7] + ((int) str_pad($m[8], 3, '0')) / 1000;
-            $text = trim(strip_tags(implode(' ', array_slice($lines, $ti + 1))));
-            if ($end <= $start) {
-                throw new InvalidArgumentException(sprintf('SRT cue %d ends before it starts.', count($cues) + 1));
+            if ($current === null || $line === '') {
+                continue;
             }
-            $cues[] = ['index' => count($cues), 'start' => round($start, 3), 'end' => round($end, 3), 'text' => $text];
+            $isCueNumber = ctype_digit($line) && preg_match($timing, $this->nextNonEmpty($lines, $i));
+            if (! $isCueNumber) {
+                $current['text'][] = $line;
+            }
+        }
+        if ($current) {
+            $cues[] = $this->cue($current, count($cues), $allowInvalidTiming);
         }
         if (! $cues) {
-            throw new InvalidArgumentException('The SRT file has no cues.');
+            throw new InvalidArgumentException('The SRT file has no cues (no "00:00:00,000 --> 00:00:02,000" timing lines were found).');
         }
 
         return $cues;
+    }
+
+    /** @param array{m: array<int, string>, text: list<string>} $raw */
+    private function cue(array $raw, int $index, bool $allowInvalidTiming): array
+    {
+        $m = $raw['m'];
+        $start = $m[1] * 3600 + $m[2] * 60 + $m[3] + ((int) str_pad($m[4], 3, '0')) / 1000;
+        $end = $m[5] * 3600 + $m[6] * 60 + $m[7] + ((int) str_pad($m[8], 3, '0')) / 1000;
+        if (! $allowInvalidTiming && $end <= $start) {
+            throw new InvalidArgumentException(sprintf(
+                'SRT cue %d has invalid timing: %s --> %s (the end must be after the start).',
+                $index + 1,
+                $this->ts($start),
+                $this->ts($end),
+            ));
+        }
+
+        return ['index' => $index, 'start' => round($start, 3), 'end' => round($end, 3), 'text' => trim(strip_tags(implode(' ', $raw['text'])))];
+    }
+
+    private function nextNonEmpty(array $lines, int $from): string
+    {
+        for ($i = $from + 1; $i < count($lines); $i++) {
+            if ($lines[$i] !== '') {
+                return $lines[$i];
+            }
+        }
+
+        return '';
     }
 
     public function format(array $cues): string

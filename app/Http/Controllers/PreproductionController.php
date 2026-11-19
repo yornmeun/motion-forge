@@ -15,7 +15,6 @@ use App\Services\Production\SrtParser;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -78,7 +77,10 @@ class PreproductionController extends Controller
         if (empty($pre['approved_at'])) {
             return back()->withErrors(['package' => 'Approve the script before preparing the production package.']);
         }
-        $request->validate(['voiceover' => ['required', 'file', 'mimes:mp3,wav,m4a,aac,ogg,flac', 'max:'.config('motionforge.uploads.audio_max_kb')]]);
+        $request->validate([
+            'voiceover' => ['required', 'file', 'mimes:mp3,wav,m4a,aac,ogg,flac', 'max:'.config('motionforge.uploads.audio_max_kb')],
+            'auto_produce' => ['nullable', 'boolean'],
+        ]);
         try {
             $voice = $packages->storeFile($project, $request->user(), 'voiceover', $request->file('voiceover')->getRealPath(), $request->file('voiceover')->getClientOriginalName(), $request->file('voiceover')->getClientMimeType());
             $cues = $this->timeNarration($pre['narration'], $ffmpeg->audioDuration($voice->absolutePath()), $ffmpeg->silences($voice->absolutePath()));
@@ -90,7 +92,7 @@ class PreproductionController extends Controller
         } catch (Throwable $e) {
             return back()->withErrors(['package' => 'Could not prepare the package: '.$e->getMessage()]);
         }
-        $workflow->validatePackage($pkg, $request->user());
+        $workflow->validatePackage($pkg, $request->user(), ['auto_produce' => $request->boolean('auto_produce')]);
 
         return back()->with('status', "Package v{$pkg->version} prepared from the approved script. Review the validation, then approve it.");
     }
@@ -105,19 +107,38 @@ class PreproductionController extends Controller
         $lines = [];
         foreach ($sentences as $s) {
             $words = preg_split('/\s+/u', trim($s));
-            foreach (array_chunk($words, 7) as $chunk) $lines[] = implode(' ', $chunk);
+            foreach (array_chunk($words, 7) as $chunk) {
+                $lines[] = implode(' ', $chunk);
+            }
         }
         // speech spans = gaps between silences
-        $spans = []; $cursor = 0.0;
-        foreach ($silences as $sil) { if ($sil['start'] - $cursor > 0.15) $spans[] = [$cursor, $sil['start']]; $cursor = $sil['end']; }
-        if ($duration - $cursor > 0.15) $spans[] = [$cursor, $duration];
+        $spans = [];
+        $cursor = 0.0;
+        foreach ($silences as $sil) {
+            if ($sil['start'] - $cursor > 0.15) {
+                $spans[] = [$cursor, $sil['start']];
+            } $cursor = $sil['end'];
+        }
+        if ($duration - $cursor > 0.15) {
+            $spans[] = [$cursor, $duration];
+        }
         $speech = array_sum(array_map(fn ($s) => $s[1] - $s[0], $spans)) ?: $duration;
         $total = array_sum(array_map(fn ($l) => mb_strlen($l), $lines)) ?: 1;
-        $map = function (float $speechT) use ($spans, $duration) { foreach ($spans as [$a, $b]) { if ($speechT <= $b - $a) return $a + $speechT; $speechT -= $b - $a; } return $duration; };
-        $cues = []; $acc = 0.0;
+        $map = function (float $speechT) use ($spans, $duration) {
+            foreach ($spans as [$a, $b]) {
+                if ($speechT <= $b - $a) {
+                    return $a + $speechT;
+                } $speechT -= $b - $a;
+            }
+
+            return $duration;
+        };
+        $cues = [];
+        $acc = 0.0;
         foreach ($lines as $i => $l) {
             $len = mb_strlen($l) / $total * $speech;
-            $start = $map($acc + 0.001); $end = $map($acc + $len);
+            $start = $map($acc + 0.001);
+            $end = $map($acc + $len);
             $cues[] = ['index' => $i, 'start' => round($start, 3), 'end' => round(max($end, $start + 0.4), 3), 'text' => $l];
             $acc += $len;
         }

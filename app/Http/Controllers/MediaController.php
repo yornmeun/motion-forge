@@ -22,7 +22,9 @@ class MediaController extends Controller
             'file' => ProjectFile::whereKey($id)->where('project_id', $project->id)->value('path'),
             'artifact' => RenderArtifact::whereKey($id)->where('project_id', $project->id)->value('path'),
             'thumbnail' => Thumbnail::whereKey($id)->where('project_id', $project->id)->value('path'),
-            'thumb-check' => (fn () => ($t = Thumbnail::where('project_id', $project->id)->latest()->first()) ? ($t->checks[request('v') === 'crop' ? 'crop_3x4' : 'small'] ?? null) : null)(),
+            'thumb-check' => (fn () => ($t = Thumbnail::where('project_id', $project->id)->latest()->first()) ? (match (request('v')) {
+                'crop' => $t->checks['crop_3x4'] ?? null, 'medium' => $t->checks['640x360'] ?? null, default => $t->checks['small'] ?? $t->checks['168x94'] ?? null
+            }) : null)(),
             default => null,
         };
         $disk = Storage::disk(config('motionforge.disk'));

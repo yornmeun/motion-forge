@@ -30,7 +30,7 @@ class JobController extends Controller
             'storyboard' => $workflow->generateStoryboard($job->project, $user, $options),
             'scene_code', 'video_clip' => $workflow->regenerateScene($job->scene, $user, $options),
             'render_scene' => $workflow->renderScene($job->scene, $user),
-            'validate_package' => $workflow->validatePackage($job->project->latestPackage, $user),
+            'validate_package' => $workflow->validatePackage($job->project->latestPackage, $user, $options),
             default => abort(422, 'This job type cannot be retried here.'),
         };
 

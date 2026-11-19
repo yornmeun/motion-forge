@@ -19,6 +19,9 @@ class TemplateStoryboardPlanner implements ScenePlannerInterface
     public function plan(Project $project, User $user, array $options = []): PlanResult
     {
         $package = $this->packages->assertLocked($project);
+        if ($package->document('scene_sheet')) {
+            return app(SceneSheetPlanner::class)->plan($project, $user, $options); // V2 package: the scene sheet is the plan
+        }
         $cues = $this->srt->parse($package->srt_text);
         $board = $this->board($cues, $package->notes);
         $errors = $this->builder->validate($board, $cues);
@@ -29,22 +32,31 @@ class TemplateStoryboardPlanner implements ScenePlannerInterface
         return new PlanResult($this->builder->build($board, $cues, $package), ['slam_word' => $board['slam_word']], 'template');
     }
 
-    public function board(array $cues, ?string $notes = null): array
+    /** @param list<int> $breaks cue indexes that must start a new scene (scene-sheet boundaries) */
+    public function board(array $cues, ?string $notes = null, array $breaks = []): array
     {
         $groups = [];
         $cur = null;
         foreach ($cues as $i => $c) {
-            if ($cur === null) { $cur = ['cue_start' => $i, 'cue_end' => $i, 'start' => $c['start'], 'end' => $c['end'], 'text' => $c['text']]; continue; }
+            if ($cur === null) {
+                $cur = ['cue_start' => $i, 'cue_end' => $i, 'start' => $c['start'], 'end' => $c['end'], 'text' => $c['text']];
+
+                continue;
+            }
             $len = $c['end'] - $cur['start'];
             $sentenceEnd = (bool) preg_match('/[.!?…]["”]?$/u', trim($cur['text']));
-            if ($len > 8 || ($cur['end'] - $cur['start'] >= 3.2 && $sentenceEnd) || $cur['end'] - $cur['start'] >= 6) {
+            if (in_array($i, $breaks, true) || $len > 8 || ($cur['end'] - $cur['start'] >= 3.2 && $sentenceEnd) || $cur['end'] - $cur['start'] >= 6) {
                 $groups[] = $cur;
                 $cur = ['cue_start' => $i, 'cue_end' => $i, 'start' => $c['start'], 'end' => $c['end'], 'text' => $c['text']];
             } else {
-                $cur['cue_end'] = $i; $cur['end'] = $c['end']; $cur['text'] .= ' '.$c['text'];
+                $cur['cue_end'] = $i;
+                $cur['end'] = $c['end'];
+                $cur['text'] .= ' '.$c['text'];
             }
         }
-        if ($cur) $groups[] = $cur;
+        if ($cur) {
+            $groups[] = $cur;
+        }
 
         $shots = ['medium', 'close_up', 'wide', 'over_the_shoulder', 'medium', 'low_angle', 'close_up', 'high_angle', 'extreme_close_up', 'wide'];
         $moves = ['slow_push_in', 'handheld_drift', 'slow_pull_out', 'slow_push_in', 'pan_right', 'static_drift', 'slow_push_in', 'pan_left'];
@@ -58,27 +70,53 @@ class TemplateStoryboardPlanner implements ScenePlannerInterface
             $phase = $n > 1 ? $k / ($n - 1) : 0;
             $emotion = $this->emotion($text, $phase);
             $shot = $shots[$k % count($shots)];
-            if ($emotion === 'shocked' || $emotion === 'afraid') $shot = 'close_up';
-            if ($shot === $prevShot) $shot = $shot === 'close_up' ? 'medium' : 'close_up';
+            if ($emotion === 'shocked' || $emotion === 'afraid') {
+                $shot = 'close_up';
+            }
+            if ($shot === $prevShot) {
+                $shot = $shot === 'close_up' ? 'medium' : 'close_up';
+            }
             $prevShot = $shot;
             $look = $phase < 0.35 ? 'neutral' : ($phase < 0.7 ? ($emotion === 'sad' ? 'cold' : 'tense') : ($phase > 0.85 ? 'payoff' : 'tense'));
-            if (str_contains($bg, 'Night')) $look = 'night';
+            if (str_contains($bg, 'Night')) {
+                $look = 'night';
+            }
             $sfx = [];
-            if ($k === 0) $sfx[] = 'boom';
-            if (preg_match('/\b(walk|walked|ran|run|went|came|left)\b/u', $text)) $sfx[] = 'footsteps';
-            if (preg_match('/\b(door|opened|closed|slammed)\b/u', $text)) $sfx[] = 'door';
-            if (preg_match('/\b(phone|text|message|click|typed|password)\b/u', $text)) $sfx[] = 'click';
-            if (preg_match('/\b(paper|letter|note|grade|test)\b/u', $text)) $sfx[] = 'paper';
-            if ($emotion === 'shocked') $sfx[] = 'hit_metal';
-            if ($emotion === 'afraid' || $emotion === 'worried') $sfx[] = 'heartbeat';
-            if (! $sfx) $sfx[] = $k % 2 ? 'whoosh' : 'low_hit';
+            if ($k === 0) {
+                $sfx[] = 'boom';
+            }
+            if (preg_match('/\b(walk|walked|ran|run|went|came|left)\b/u', $text)) {
+                $sfx[] = 'footsteps';
+            }
+            if (preg_match('/\b(door|opened|closed|slammed)\b/u', $text)) {
+                $sfx[] = 'door';
+            }
+            if (preg_match('/\b(phone|text|message|click|typed|password)\b/u', $text)) {
+                $sfx[] = 'click';
+            }
+            if (preg_match('/\b(paper|letter|note|grade|test)\b/u', $text)) {
+                $sfx[] = 'paper';
+            }
+            if ($emotion === 'shocked') {
+                $sfx[] = 'hit_metal';
+            }
+            if ($emotion === 'afraid' || $emotion === 'worried') {
+                $sfx[] = 'heartbeat';
+            }
+            if (! $sfx) {
+                $sfx[] = $k % 2 ? 'whoosh' : 'low_hit';
+            }
             $music = $phase < 0.3 ? 'dark_drone' : ($emotion === 'sad' ? 'sparse_piano' : ($phase < 0.8 ? 'pulse_synth' : 'epic_swell'));
             $keywords = $this->keywords($g['text']);
             $actions = $this->actions($text);
             $characters = ['Kiki'];
-            if (preg_match('/\bprincipal\b/u', $text)) $characters[] = 'Principal Karl';
-            elseif (preg_match('/\b(teacher|boss|dad|mom|mother|father|man|woman|officer|doctor|wife|husband)\b/u', $text)) $characters[] = 'Adult';
-            elseif (preg_match('/\b(friend|classmate|kid|boy|girl|brother|sister)\b/u', $text)) $characters[] = 'Kid';
+            if (preg_match('/\bprincipal\b/u', $text)) {
+                $characters[] = 'Principal Karl';
+            } elseif (preg_match('/\b(teacher|boss|dad|mom|mother|father|man|woman|officer|doctor|wife|husband)\b/u', $text)) {
+                $characters[] = 'Adult';
+            } elseif (preg_match('/\b(friend|classmate|kid|boy|girl|brother|sister)\b/u', $text)) {
+                $characters[] = 'Kid';
+            }
             $scenes[] = [
                 'cue_start' => $g['cue_start'], 'cue_end' => $g['cue_end'],
                 'visual_description' => 'Template staging: '.implode(', ', $characters)." in the {$bg}, {$emotion} beat for: \"".mb_substr($g['text'], 0, 120).'"',
@@ -93,7 +131,9 @@ class TemplateStoryboardPlanner implements ScenePlannerInterface
         $slam = collect($this->matcher->words($slamGroup['text']))->filter(fn ($w) => mb_strlen($w) >= 4 && ! in_array($w, self::STOP, true))->sortByDesc(fn ($w) => mb_strlen($w))->first()
             ?? $this->matcher->words($slamGroup['text'])[0];
         $advice = null;
-        if ($notes && preg_match('/^\s*(advice|lesson|moral)\s*:\s*(.{10,110})$/mi', $notes, $m)) $advice = trim($m[2]);
+        if ($notes && preg_match('/^\s*(advice|lesson|moral)\s*:\s*(.{10,110})$/mi', $notes, $m)) {
+            $advice = trim($m[2]);
+        }
 
         return [
             'scenes' => $scenes, 'slam_word' => $slam,
@@ -145,12 +185,24 @@ class TemplateStoryboardPlanner implements ScenePlannerInterface
     private function actions(string $t): array
     {
         $a = [];
-        if (preg_match('/\b(walk|walked|went|came)\b/u', $t)) $a[] = 'walks forward';
-        if (preg_match('/\b(ran|run|running)\b/u', $t)) $a[] = 'runs';
-        if (preg_match('/\b(phone|text|message|typed)\b/u', $t)) $a[] = 'looks at phone';
-        if (preg_match('/\b(pointed|accused|you)\b/u', $t)) $a[] = 'points';
-        if (preg_match('/\b(turned|looked)\b/u', $t)) $a[] = 'slowly turns head';
-        if (preg_match('/\b(think|thought|realized|wondered)\b/u', $t)) $a[] = 'thinks';
+        if (preg_match('/\b(walk|walked|went|came)\b/u', $t)) {
+            $a[] = 'walks forward';
+        }
+        if (preg_match('/\b(ran|run|running)\b/u', $t)) {
+            $a[] = 'runs';
+        }
+        if (preg_match('/\b(phone|text|message|typed)\b/u', $t)) {
+            $a[] = 'looks at phone';
+        }
+        if (preg_match('/\b(pointed|accused|you)\b/u', $t)) {
+            $a[] = 'points';
+        }
+        if (preg_match('/\b(turned|looked)\b/u', $t)) {
+            $a[] = 'slowly turns head';
+        }
+        if (preg_match('/\b(think|thought|realized|wondered)\b/u', $t)) {
+            $a[] = 'thinks';
+        }
 
         return $a ?: ['holds a tense stare, breathing'];
     }

@@ -12,7 +12,7 @@ use Throwable;
  */
 class PackageValidator
 {
-    public function __construct(private SrtParser $srt, private NarrationMatcher $matcher, private Ffmpeg $ffmpeg) {}
+    public function __construct(private SrtParser $srt, private NarrationMatcher $matcher, private Ffmpeg $ffmpeg, private SceneSheetParser $sheets) {}
 
     /** @return array{status: string, checks: list<array>, cues: int, audio_duration: ?float, srt_end: ?float, differences: array} */
     public function validate(ProductionPackage $package): array
@@ -35,7 +35,11 @@ class PackageValidator
             $cues = $this->srt->parse((string) $package->srt_text);
             $srtEnd = end($cues)['end'];
             $overlaps = 0;
-            for ($i = 1; $i < count($cues); $i++) if ($cues[$i]['start'] < $cues[$i - 1]['end'] - 0.05) $overlaps++;
+            for ($i = 1; $i < count($cues); $i++) {
+                if ($cues[$i]['start'] < $cues[$i - 1]['end'] - 0.05) {
+                    $overlaps++;
+                }
+            }
             $add('srt', 'SRT subtitles', $overlaps ? 'warn' : 'pass', count($cues).' cues, ends at '.gmdate('i:s', (int) $srtEnd).($overlaps ? ", {$overlaps} overlapping cues" : '').'.');
         } catch (Throwable $e) {
             $add('srt', 'SRT subtitles', 'fail', $package->srt_text ? $e->getMessage() : 'story.srt is missing.');
@@ -80,9 +84,16 @@ class PackageValidator
 
         $add('project', 'Title and format', $project->title && $project->aspect_ratio ? 'pass' : 'fail', "“{$project->title}”, {$project->aspect_ratio}, {$project->width}×{$project->height} @ {$project->frame_rate} fps.");
 
-        if ($audio !== null) {
-            $min = 130; $max = 160;
-            $add('length', 'Typical Kikitoons length', ($audio >= $min && $audio <= $max) ? 'pass' : 'warn', sprintf('Voice length %s; Kikitoons videos are usually 2:10–2:40. The approved voice sets the length.', gmdate('i:s', (int) $audio)));
+        if ($sheet = $package->document('scene_sheet')) {
+            $scenes = $this->sheets->scenes($sheet);
+            $lastCue = collect($scenes)->max('cue_end');
+            if (! $scenes) {
+                $add('scene_sheet', 'Scene sheet', 'fail', 'SCENE_SHEET.md has no scene entries (expected "### SC_001 — Title" blocks).');
+            } elseif ($cues && $lastCue !== null && $lastCue < count($cues) - 1) {
+                $add('scene_sheet', 'Scene sheet', 'warn', sprintf('%d scenes; they reference SRT cues up to %d of %d. The remaining cues join the last scene.', count($scenes), $lastCue, count($cues)));
+            } else {
+                $add('scene_sheet', 'Scene sheet', 'pass', sprintf('%d scenes (%s–%s) will be followed as written.', count($scenes), $scenes[0]['id'], end($scenes)['id']));
+            }
         }
 
         $status = collect($checks)->contains('status', 'fail') ? 'invalid' : 'valid';

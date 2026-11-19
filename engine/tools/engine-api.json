@@ -62,6 +62,9 @@
     "street",
     "txt",
     "walk",
-    "wifiIcon"
+    "wifiIcon",
+    "SW",
+    "SH",
+    "LANDSCAPE"
   ]
 }

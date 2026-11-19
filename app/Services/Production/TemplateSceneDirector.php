@@ -33,9 +33,14 @@ class TemplateSceneDirector implements AnimationGeneratorInterface
             'dur' => round($duration, 3), 'bg' => $this->bgKey($plan['background'] ?? 'hallway'), 'look' => $plan['lighting'] ?? 'neutral',
             'shot' => $plan['camera']['shot'] ?? 'medium', 'move' => $plan['camera']['movement'] ?? 'slow_push_in',
             'emotion' => $plan['emotion'] ?? 'neutral', 'actions' => array_values($plan['character_actions'] ?? []),
-            'cast' => $this->cast($plan['characters'] ?? ['Kiki'], $user), 'seed' => $sequence + 1,
+            'cast' => $this->planCast($plan, $user), 'seed' => $sequence + 1,
             'kw' => $plan['caption_keywords'][0] ?? null, 'slamAt' => $slamAt,
         ];
+        if (! empty($plan['sheet_id'])) {
+            // scene-sheet stories have their own protagonist; Kiki, when requested, is a guest
+            $hero = collect($P['cast'])->search(fn (array $c) => $c['kind'] !== 'kiki');
+            $P['hero'] = $hero === false ? null : $hero;
+        }
         $json = json_encode($P, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $slam = ! empty($plan['slam_word']) ? "\n  P.slamAt = capLocal(SCENE_INDEX, ".json_encode($plan['slam_word']).', null);' : '';
 
@@ -47,14 +52,28 @@ class TemplateSceneDirector implements AnimationGeneratorInterface
         return in_array($bg, PlanVocabulary::BACKGROUNDS, true) ? $bg : 'hallway';
     }
 
+    /** Scene-sheet plans carry their registry cast; older plans are mapped from names. Kiki only where the plan allows him. */
+    private function planCast(array $plan, ?User $user): array
+    {
+        if (! empty($plan['cast'])) {
+            return array_map(fn (array $c) => ['kind' => $c['kind'], 'name' => $c['name'], 'def' => $c['def'] ?? (object) []], array_slice($plan['cast'], 0, 3));
+        }
+
+        return $this->cast($plan['characters'] ?? ['Kiki'], $user, (bool) ($plan['kiki'] ?? true));
+    }
+
     /** Map plan character names to library definitions. Unknown names become a generic kid or adult. */
-    public function cast(array $names, ?User $user): array
+    public function cast(array $names, ?User $user, bool $addKiki = true): array
     {
         $lib = $user ? Character::visibleTo($user)->get() : Character::whereNull('user_id')->get();
         $out = [];
         foreach (array_slice($names, 0, 3) as $name) {
             $n = mb_strtolower(trim((string) $name));
-            if ($n === 'kiki') { $out[] = ['kind' => 'kiki', 'name' => 'Kiki']; continue; }
+            if ($n === 'kiki') {
+                $out[] = ['kind' => 'kiki', 'name' => 'Kiki'];
+
+                continue;
+            }
             $c = $lib->first(fn ($c) => mb_strtolower($c->name) === $n || $c->slug === $n);
             if ($c) {
                 $out[] = ['kind' => $c->kind === 'suit' ? 'suit' : ($c->kind === 'kiki_preset' ? 'kiki' : 'kid'), 'name' => $c->name, 'def' => $c->definition ?: (object) []];
@@ -63,7 +82,7 @@ class TemplateSceneDirector implements AnimationGeneratorInterface
                 $out[] = ['kind' => $adult ? 'suit' : 'kid', 'name' => (string) $name, 'def' => $adult ? ['suit' => '#3f4a5a', 'tie' => '#2d3a4a', 'hair' => 'grey'] : ['shirt' => '#5b6f9a', 'hair' => 'bob']];
             }
         }
-        if (! collect($out)->contains('kind', 'kiki') && count($out) < 3) {
+        if ($addKiki && ! collect($out)->contains('kind', 'kiki') && count($out) < 3) {
             array_unshift($out, ['kind' => 'kiki', 'name' => 'Kiki']);
         }
 

@@ -13,7 +13,10 @@ use RuntimeException;
 /** FFmpeg assembly of the rendered scene segments + mix into final.mp4 (H.264 / AAC). */
 class RenderFullVideoJob extends RenderPipelineStep
 {
-    protected function stageName(): string { return 'FFmpeg video assembly'; }
+    protected function stageName(): string
+    {
+        return 'FFmpeg video assembly';
+    }
 
     protected function run(RenderJob $rj, Project $project): void
     {
@@ -34,7 +37,7 @@ class RenderFullVideoJob extends RenderPipelineStep
                 $capsRel = $project->storageDir('renders/caps.json');
                 if ($disk->exists($capsRel)) {
                     $ass = $work.'/subs.ass';
-                    file_put_contents($ass, $assembler->ass(json_decode($disk->get($capsRel), true), $project->width, $project->height, (int) $project->setting('subtitles.y', 1344)));
+                    file_put_contents($ass, $assembler->ass(json_decode($disk->get($capsRel), true), $project->width, $project->height, $project->captionY()));
                 }
             }
             $finalRel = $project->storageDir('delivery/final.mp4');

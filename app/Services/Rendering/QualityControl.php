@@ -83,9 +83,12 @@ class QualityControl
         $spans = collect($fm[1])->map(fn ($s, $i) => [(float) $s, (float) ($fe[1][$i] ?? $dur)])->filter(fn ($s) => $s[0] < $dur - 1.6); // the final 1 s hold is intentional
         $add('frozen_frames', $spans->isEmpty() ? 'pass' : 'warn', $spans->count().' span(s)', 'no static stretch > 1.5 s', $spans->isEmpty() ? 'Motion throughout.' : 'Static stretches at '.$spans->map(fn ($s) => round($s[0], 1).'–'.round($s[1], 1).' s')->implode(', '));
         if ($caps) {
-            $bad = 0; $prev = -1;
+            $bad = 0;
+            $prev = -1;
             foreach ($caps as $c) {
-                if ($c['start'] < $prev - 0.05 || $c['end'] > $dur + 0.05 || $c['end'] <= $c['start']) $bad++;
+                if ($c['start'] < $prev - 0.05 || $c['end'] > $dur + 0.05 || $c['end'] <= $c['start']) {
+                    $bad++;
+                }
                 $prev = $c['start'];
             }
             $add('subtitle_timing', $bad ? 'fail' : 'pass', $bad.' issue(s)', 'ordered, inside the video', $bad ? 'Some subtitle cues are out of order or outside the video.' : count($caps).' cues ordered and within the video.');
@@ -97,8 +100,9 @@ class QualityControl
     public function checkThumbnail(Project $project, ?string $abs): void
     {
         $project->qualityChecks()->where('check_key', 'thumbnail')->delete();
-        $ok = $abs && is_file($abs) && ($size = @getimagesize($abs)) && $size[0] === 1080 && $size[1] === 1920;
-        QualityCheck::create(['project_id' => $project->id, 'kind' => 'technical', 'check_key' => 'thumbnail', 'status' => $ok ? 'pass' : 'fail', 'value' => $abs && is_file($abs) ? ($size[0] ?? '?').'x'.($size[1] ?? '?') : 'missing', 'expected' => '1080x1920 PNG', 'message' => $ok ? 'Thumbnail present.' : 'Thumbnail missing or wrong size.']);
+        [$thumbW, $thumbH] = $project->isLandscape() ? [1280, 720] : [1080, 1920];
+        $ok = $abs && is_file($abs) && ($size = @getimagesize($abs)) && $size[0] === $thumbW && $size[1] === $thumbH && ($thumbW === 1080 || filesize($abs) <= 2 * 1024 * 1024);
+        QualityCheck::create(['project_id' => $project->id, 'kind' => 'technical', 'check_key' => 'thumbnail', 'status' => $ok ? 'pass' : 'fail', 'value' => $abs && is_file($abs) ? ($size[0] ?? '?').'x'.($size[1] ?? '?') : 'missing', 'expected' => "{$thumbW}x{$thumbH}".($project->isLandscape() ? ', under 2 MB' : ' PNG'), 'message' => $ok ? 'Thumbnail present.' : 'Thumbnail missing or wrong size.']);
     }
 
     public function seedCreativeChecklist(Project $project): void

@@ -25,30 +25,120 @@ class Project extends Model
         ];
     }
 
-    public function user(): BelongsTo { return $this->belongsTo(User::class); }
-    public function members(): BelongsToMany { return $this->belongsToMany(User::class, 'project_members')->withPivot('role')->withTimestamps(); }
-    public function credential(): BelongsTo { return $this->belongsTo(AiCredential::class, 'ai_credential_id'); }
-    public function videoCredential(): BelongsTo { return $this->belongsTo(AiCredential::class, 'video_credential_id'); }
-    public function fallbackCredential(): BelongsTo { return $this->belongsTo(AiCredential::class, 'fallback_credential_id'); }
-    public function packages(): HasMany { return $this->hasMany(ProductionPackage::class)->orderByDesc('version'); }
-    public function approvedPackage(): HasOne { return $this->hasOne(ProductionPackage::class)->where('status', 'approved')->latestOfMany('version'); }
-    public function latestPackage(): HasOne { return $this->hasOne(ProductionPackage::class)->latestOfMany('version'); }
-    public function files(): HasMany { return $this->hasMany(ProjectFile::class); }
-    public function scenes(): HasMany { return $this->hasMany(Scene::class)->orderBy('sequence'); }
-    public function generationJobs(): HasMany { return $this->hasMany(GenerationJob::class)->latest(); }
-    public function renderJobs(): HasMany { return $this->hasMany(RenderJob::class)->latest(); }
-    public function artifacts(): HasMany { return $this->hasMany(RenderArtifact::class); }
-    public function qualityChecks(): HasMany { return $this->hasMany(QualityCheck::class); }
-    public function thumbnails(): HasMany { return $this->hasMany(Thumbnail::class)->latest(); }
-    public function captions(): HasMany { return $this->hasMany(Caption::class)->latest(); }
-    public function aiRequests(): HasMany { return $this->hasMany(AiRequest::class); }
-    public function activity(): HasMany { return $this->hasMany(ProjectActivityLog::class)->latest('created_at'); }
-    public function subtitleTracks(): HasMany { return $this->hasMany(SubtitleTrack::class); }
-    public function audioAssets(): HasMany { return $this->hasMany(AudioAsset::class); }
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function members(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'project_members')->withPivot('role')->withTimestamps();
+    }
+
+    public function credential(): BelongsTo
+    {
+        return $this->belongsTo(AiCredential::class, 'ai_credential_id');
+    }
+
+    public function videoCredential(): BelongsTo
+    {
+        return $this->belongsTo(AiCredential::class, 'video_credential_id');
+    }
+
+    public function fallbackCredential(): BelongsTo
+    {
+        return $this->belongsTo(AiCredential::class, 'fallback_credential_id');
+    }
+
+    public function packages(): HasMany
+    {
+        return $this->hasMany(ProductionPackage::class)->orderByDesc('version');
+    }
+
+    public function approvedPackage(): HasOne
+    {
+        return $this->hasOne(ProductionPackage::class)->where('status', 'approved')->latestOfMany('version');
+    }
+
+    public function latestPackage(): HasOne
+    {
+        return $this->hasOne(ProductionPackage::class)->latestOfMany('version');
+    }
+
+    public function files(): HasMany
+    {
+        return $this->hasMany(ProjectFile::class);
+    }
+
+    public function scenes(): HasMany
+    {
+        return $this->hasMany(Scene::class)->orderBy('sequence');
+    }
+
+    public function generationJobs(): HasMany
+    {
+        return $this->hasMany(GenerationJob::class)->latest();
+    }
+
+    public function renderJobs(): HasMany
+    {
+        return $this->hasMany(RenderJob::class)->latest();
+    }
+
+    public function artifacts(): HasMany
+    {
+        return $this->hasMany(RenderArtifact::class);
+    }
+
+    public function qualityChecks(): HasMany
+    {
+        return $this->hasMany(QualityCheck::class);
+    }
+
+    public function thumbnails(): HasMany
+    {
+        return $this->hasMany(Thumbnail::class)->latest();
+    }
+
+    public function captions(): HasMany
+    {
+        return $this->hasMany(Caption::class)->latest();
+    }
+
+    public function aiRequests(): HasMany
+    {
+        return $this->hasMany(AiRequest::class);
+    }
+
+    public function activity(): HasMany
+    {
+        return $this->hasMany(ProjectActivityLog::class)->latest('created_at');
+    }
+
+    public function subtitleTracks(): HasMany
+    {
+        return $this->hasMany(SubtitleTrack::class);
+    }
+
+    public function audioAssets(): HasMany
+    {
+        return $this->hasMany(AudioAsset::class);
+    }
 
     public function setting(string $key, mixed $default = null): mixed
     {
         return data_get($this->settings, $key, $default);
+    }
+
+    public function isLandscape(): bool
+    {
+        return (int) $this->width > (int) $this->height;
+    }
+
+    /** Subtitle baseline: the project setting, or the lower third for the frame's orientation (landscape 900, vertical 1344). */
+    public function captionY(): int
+    {
+        return (int) $this->setting('subtitles.y', $this->isLandscape() ? 900 : 1344);
     }
 
     public function finalVideo(): ?RenderArtifact

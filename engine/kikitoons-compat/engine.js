@@ -10,6 +10,8 @@
 'use strict';
 
 (function () {
+  // frame assembly works in screen space (the canvas), which differs from the world in landscape stories
+  const W = SW, H = SH;
   const S = (typeof STORY !== 'undefined') ? STORY : null;
   const canvas = document.getElementById('stage');
   const ctx = canvas.getContext('2d');
@@ -98,13 +100,13 @@
     });
   }
   const CUES = captionCues().map(c => ({ ...c, words: (c.words || []).map(x => x.kind ? x : { ...x, ...(parseWords(x.w)[0] || { w: x.w, kind: 'plain' }) }) }));
-  const CAP_Y = Math.min(1450, S && S.captionY ? S.captionY : 1344);
+  const CAP_Y = LANDSCAPE ? Math.min(960, S && S.captionY ? S.captionY : 900) : Math.min(1450, S && S.captionY ? S.captionY : 1344);
 
   function drawCaptions(T) {
     const cue = CUES.find(c => T >= c.start && T < c.end + 0.15);
     if (!cue) return;
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const size = 70, keySize = 80, maxW = 900, gap = 18;
+    const size = 70, keySize = 80, maxW = LANDSCAPE ? 1500 : 900, gap = 18;
     // lay the cue out in lines, then group lines into pages of ≤2 and show the page holding the
     // most recently spoken word, so no spoken word is ever skipped and never more than 2 lines show
     const measured = cue.words.filter(w => w.kind !== 'slam').map(w => { ctx.font = `700 ${w.kind === 'key' ? keySize : size}px Poppins, sans-serif`; return { ...w, wd: ctx.measureText(w.w.toUpperCase()).width }; });
@@ -130,8 +132,8 @@
     if (slam) {
       const k = clamp((T - slam.start) / 0.6), e = E.heavy(k), sh = shk(T, slam.start, 14, 0.4);
       ctx.globalAlpha = Math.min(1, k * 3); ctx.textAlign = 'center';
-      ctx.translate(W / 2 + sh.sx, CAP_Y - 230 + sh.sy); ctx.scale(lerp(1.35, 1, e), lerp(1.35, 1, e));
-      ctx.font = `700 190px Poppins, sans-serif`; ctx.lineWidth = 22; ctx.strokeStyle = '#0b0709'; ctx.strokeText(slam.w.toUpperCase(), 0, 0);
+      ctx.translate(W / 2 + sh.sx, CAP_Y - (LANDSCAPE ? 190 : 230) + sh.sy); ctx.scale(lerp(1.35, 1, e), lerp(1.35, 1, e));
+      ctx.font = `700 ${LANDSCAPE ? 150 : 190}px Poppins, sans-serif`; ctx.lineWidth = 22; ctx.strokeStyle = '#0b0709'; ctx.strokeText(slam.w.toUpperCase(), 0, 0);
       ctx.fillStyle = '#b3201f'; ctx.fillText(slam.w.toUpperCase(), 0, 0);
     }
     ctx.restore();
@@ -187,30 +189,60 @@
   };
 })();
 
-/** End card helper (house tone): advice line + "FOLLOW FOR MORE VIDEOS". Use inside a scene. */
+/**
+ * End card (brand element): optional advice line + "SUBSCRIBE OR FOLLOW / FOR MORE VIDEOS".
+ * Landscape: laid out like the thumbnail (Kiki on the right, text on the left). Use inside a scene.
+ */
 function endCard(ctx, t, o = {}) {
-  const dur = o.dur ?? 4.5; t = Math.min(t, dur - 1);
-  const c = camKeys(t, [[0, { z: 1.0, cy: 960 }], [dur, { z: 1.08, cy: 930 }]]);
-  cam(ctx, camMix(c, handheld(t, 3, 4)));
-  (BACKGROUNDS[o.bg || 'bedroomNight'] || BACKGROUNDS.hallway)(ctx, t, {});
+  const dur = o.dur ?? 5; t = Math.min(t, dur - 1);
+  const RED = '#C8102E';
   const al = alive(t, 3);
-  drawChar(ctx, kiki({ x: 540, y: 1010 + al.bob, s: 1.25, headRot: al.headRot + Math.sin(seg(t, 1.2, 2.0) * Math.PI) * 0.06, face: { brows: 'flat', look: [0, 0.05], blink: al.blink, mouth: 'smirk', lid: 0.15 }, arms: ARMS.rest }));
+  if (LANDSCAPE) {
+    const c = camKeys(t, [[0, { z: 0.9, cx: 80, cy: 1150 }], [dur, { z: 0.96, cx: 100, cy: 1140 }]]);
+    cam(ctx, camMix(c, handheld(t, 2.5, 4)));
+  } else {
+    const c = camKeys(t, [[0, { z: 1.0, cy: 960 }], [dur, { z: 1.08, cy: 930 }]]);
+    cam(ctx, camMix(c, handheld(t, 3, 4)));
+  }
+  (BACKGROUNDS[o.bg || 'bedroomNight'] || BACKGROUNDS.hallway)(ctx, t, {});
+  const nod = Math.sin(seg(t, 1.2, 2.0) * Math.PI) * 0.06;
+  drawChar(ctx, kiki({ x: 540, y: 1010 + al.bob, s: 1.25, headRot: al.headRot + nod, face: { brows: 'flat', look: LANDSCAPE ? [-0.25, 0.05] : [0, 0.05], blink: al.blink, mouth: 'smirk', lid: 0.15 }, arms: ARMS.rest }));
+
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = 'rgba(5,4,8,0.55)'; ctx.fillRect(0, 0, W, 560);
-  const a = E.o(seg(t, 0.3, 1.2));
-  const words = String(o.advice || '').split(' '), accent = (o.accent || '').toLowerCase();
-  ctx.font = '700 84px Poppins, sans-serif';
-  // simple 2–3 line wrap with accent colouring
-  const lines = [[]]; let lw = 0;
-  for (const w of words) { const wd = ctx.measureText(w + ' ').width; if (lw + wd > 900 && lines[lines.length - 1].length) { lines.push([]); lw = 0; } lines[lines.length - 1].push(w); lw += wd; }
-  lines.forEach((ln, li) => {
-    const total = ctx.measureText(ln.join(' ')).width; let x = W / 2 - total / 2; const y = 250 + li * 100 + (1 - a) * 20 - (lines.length - 1) * 50;
-    for (const w of ln) { ctx.globalAlpha = a; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.lineWidth = 12; ctx.strokeStyle = '#0b0709'; ctx.strokeText(w, x, y); ctx.fillStyle = w.toLowerCase().replace(/[^a-z']/g, '') === accent ? '#e0a63a' : '#f3efe6'; ctx.fillText(w, x, y); x += ctx.measureText(w + ' ').width; }
-  });
+  const textX = LANDSCAPE ? 560 : SW / 2, wrapW = LANDSCAPE ? 880 : 900;
+  if (LANDSCAPE) {
+    const g = ctx.createLinearGradient(0, 0, SW * 0.62, 0); g.addColorStop(0, 'rgba(5,4,8,0.78)'); g.addColorStop(1, 'rgba(5,4,8,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, SW, SH);
+  } else { ctx.fillStyle = 'rgba(5,4,8,0.55)'; ctx.fillRect(0, 0, SW, 560); }
+
+  const advice = String(o.advice || '').trim();
+  if (advice) {
+    const a = E.o(seg(t, 0.3, 1.2)), accent = (o.accent || '').toLowerCase(), size = LANDSCAPE ? 74 : 84;
+    ctx.font = `700 ${size}px Poppins, sans-serif`;
+    const lines = [[]]; let lw = 0;
+    for (const w of advice.split(/\s+/)) { const wd = ctx.measureText(w + ' ').width; if (lw + wd > wrapW && lines[lines.length - 1].length) { lines.push([]); lw = 0; } lines[lines.length - 1].push(w); lw += wd; }
+    const top = LANDSCAPE ? 330 : 250;
+    lines.forEach((ln, li) => {
+      const total = ctx.measureText(ln.join(' ')).width; let x = textX - total / 2;
+      const y = top + li * size * 1.2 + (1 - a) * 20 - (lines.length - 1) * size * 0.6;
+      for (const w of ln) {
+        ctx.globalAlpha = a; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.lineWidth = 12; ctx.strokeStyle = '#0b0709'; ctx.strokeText(w, x, y);
+        ctx.fillStyle = accent && w.toLowerCase().replace(/[^a-z']/g, '') === accent ? '#e0a63a' : '#f3efe6'; ctx.fillText(w, x, y);
+        x += ctx.measureText(w + ' ').width;
+      }
+    });
+  }
+  // "SUBSCRIBE OR FOLLOW" / "FOR MORE VIDEOS", SUBSCRIBE and FOLLOW in deep red, appearing ~2.2 s in
   const f = E.heavy(seg(t, o.followAt ?? 2.2, (o.followAt ?? 2.2) + 0.8));
-  ctx.globalAlpha = f; ctx.textAlign = 'center'; ctx.font = '700 110px Poppins, sans-serif';
-  const y2 = 1540; ctx.lineWidth = 20; ctx.strokeStyle = '#0b0709';
-  ctx.strokeText('FOLLOW', W / 2, y2); ctx.fillStyle = '#b3201f'; ctx.fillText('FOLLOW', W / 2, y2);
-  ctx.font = '700 92px Poppins, sans-serif'; ctx.strokeText('FOR MORE VIDEOS', W / 2, y2 + 110); ctx.fillStyle = '#ffffff'; ctx.fillText('FOR MORE VIDEOS', W / 2, y2 + 110);
+  const size1 = LANDSCAPE ? 92 : 80, size2 = LANDSCAPE ? 84 : 76;
+  const y1 = LANDSCAPE ? (advice ? 640 : 470) : 1540, y2 = y1 + size1 * 1.15;
+  ctx.globalAlpha = f; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0b0709'; ctx.lineWidth = 18;
+  ctx.font = `700 ${size1}px Poppins, sans-serif`;
+  const parts = [['SUBSCRIBE', RED], [' OR ', '#ffffff'], ['FOLLOW', RED]];
+  let x = textX - ctx.measureText(parts.map(p => p[0]).join('')).width / 2;
+  ctx.textAlign = 'left';
+  for (const [w, col] of parts) { ctx.strokeText(w, x, y1); ctx.fillStyle = col; ctx.fillText(w, x, y1); x += ctx.measureText(w).width; }
+  ctx.textAlign = 'center'; ctx.font = `700 ${size2}px Poppins, sans-serif`;
+  ctx.strokeText('FOR MORE VIDEOS', textX, y2); ctx.fillStyle = '#ffffff'; ctx.fillText('FOR MORE VIDEOS', textX, y2);
   ctx.restore();
 }

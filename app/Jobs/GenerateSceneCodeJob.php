@@ -7,6 +7,7 @@ use App\Models\Scene;
 use App\Models\SceneVersion;
 use App\Models\User;
 use App\Services\Production\AISceneCodeGenerator;
+use App\Services\Production\ProductionWorkflow;
 use App\Services\Production\TemplateSceneDirector;
 use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
@@ -22,13 +23,16 @@ class GenerateSceneCodeJob implements ShouldQueue
     use Batchable, Dispatchable, InteractsWithQueue, Queueable, SerializesModels, TracksGenerationJob;
 
     public int $tries = 3;
+
     public int $timeout = 1800;
 
     public function __construct(public string $sceneId, public int $userId, public ?string $generationJobId = null, public array $options = []) {}
 
-    public function handle(): void
+    public function handle(ProductionWorkflow $workflow): void
     {
-        if ($this->batch()?->cancelled() || ! $this->begin('Writing animation code')) return;
+        if ($this->batch()?->cancelled() || ! $this->begin('Writing animation code')) {
+            return;
+        }
         $scene = Scene::with('project', 'currentVersion')->findOrFail($this->sceneId);
         $user = User::findOrFail($this->userId);
         try {
@@ -57,6 +61,9 @@ class GenerateSceneCodeJob implements ShouldQueue
             $this->stage('Rendering preview frame');
             GenerateScenePreviewJob::dispatchSync($scene->id);
             $this->succeed(['version' => $next, 'valid' => true, 'origin' => $result->origin], 'Scene ready for review');
+            if ($this->options['auto_render'] ?? false) {
+                $workflow->startRenderWhenReady($scene->project->fresh(), $user);
+            }
         } catch (Throwable $e) {
             $scene->update(['status' => 'failed', 'error' => mb_substr($e->getMessage(), 0, 1000)]);
             $this->handleError($e);

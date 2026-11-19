@@ -42,15 +42,47 @@ class CaptionWriter
         return $this->template($project);
     }
 
+    /**
+     * YouTube text without AI: a title under ~60 characters, a 2–3 line description that teases the
+     * hook (the narration's opening lines, so nothing is invented or spoiled) ending with 3–5 hashtags,
+     * and 8–12 tags. Returned as one ready-to-paste block.
+     */
     public function template(Project $project): array
     {
+        $youtubeTitle = mb_strlen($project->title) <= 60 ? $project->title : rtrim(mb_substr($project->title, 0, 57)).'…';
         $title = mb_strtoupper(implode(' ', array_slice(preg_split('/\s+/', trim(preg_replace('/[^\p{L}\p{N}\s?!\']/u', '', $project->title))), 0, 4)));
         $genre = preg_replace('/[^\p{L}\p{N}]/u', '', ucwords((string) ($project->genre ?: 'story')));
-        $hook = $project->description ? mb_substr(trim($project->description), 0, 140) : 'Watch until the end.';
         $words = preg_split('/\s+/', $title);
         $keyword = collect($words)->sortByDesc(fn ($w) => mb_strlen($w))->first();
+        $hook = $this->hookLines($project);
+        $hashtags = ['#kikitoons', '#animatedstory', '#storytime', '#'.$genre];
+        $tags = collect(['kikitoons', 'animated story', 'story time', '2d animation', 'cartoon story', mb_strtolower($project->title), mb_strtolower((string) ($project->genre ?: 'life story'))])
+            ->merge(collect(preg_split('/\s+/', mb_strtolower(preg_replace('/[^\p{L}\p{N}\s]/u', '', $project->title))))->filter(fn ($w) => mb_strlen($w) >= 5)->map(fn ($w) => $w.' story'))
+            ->merge(['true story animated', 'storytelling', 'life lessons'])
+            ->unique()->take(12)->values();
+        $body = "Title: {$youtubeTitle}\n\nDescription:\n".implode("\n", $hook)."\n".implode(' ', $hashtags)."\n\nTags: ".$tags->implode(', ');
 
-        return ['body' => $hook, 'hashtags' => ['#kikitoons', '#animation', '#storytime', '#'.$genre], 'title' => $title, 'keyword' => $keyword, 'origin' => 'template', 'ai_request_id' => null];
+        return ['body' => $body, 'hashtags' => $hashtags, 'title' => $title, 'keyword' => $keyword, 'origin' => 'template', 'ai_request_id' => null];
+    }
+
+    /** @return list<string> 2–3 short lines from the opening of the approved narration (or the description). */
+    private function hookLines(Project $project): array
+    {
+        $source = trim((string) ($project->approvedPackage?->narration_text ?: $project->description));
+        $sentences = preg_split('/(?<=[.!?…])\s+/u', $source) ?: [];
+        $lines = [];
+        foreach ($sentences as $sentence) {
+            $sentence = trim($sentence);
+            if ($sentence === '' || mb_strlen($sentence) > 140) {
+                continue;
+            }
+            $lines[] = $sentence;
+            if (count($lines) === 2) {
+                break;
+            }
+        }
+
+        return $lines ?: ['Watch until the end.'];
     }
 
     public function store(Project $project, array $c): Caption

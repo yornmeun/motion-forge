@@ -29,7 +29,7 @@
                 <div class="sm:col-span-2"><label class="label">Title</label><input name="title" value="{{ $project->title }}" class="input" required maxlength="160"></div>
                 <div class="sm:col-span-2"><label class="label">Description</label><textarea name="description" rows="2" class="input">{{ $project->description }}</textarea></div>
                 <div><label class="label">Genre</label><input name="genre" value="{{ $project->genre }}" class="input"></div>
-                <div><label class="label">Subtitle position (y)</label><input name="settings[subtitles][y]" type="number" min="220" max="1450" value="{{ $project->setting('subtitles.y', 1344) }}" class="input"></div>
+                <div><label class="label">Subtitle position (y)</label><input name="settings[subtitles][y]" type="number" min="220" max="{{ $project->isLandscape() ? 960 : 1450 }}" value="{{ $project->captionY() }}" class="input"></div>
                 <div><label class="label">Thumbnail title</label><input name="settings[thumbnail][title]" maxlength="40" value="{{ $project->setting('thumbnail.title') }}" class="input" placeholder="Generated if empty"></div>
                 <div><label class="label">Atmosphere</label><select name="settings[atmosphere]" class="input">@foreach (\App\Services\Production\PlanVocabulary::LOOKS as $l)<option value="{{ $l }}" @selected($project->setting('atmosphere') === $l)>{{ ucfirst($l) }}</option>@endforeach</select></div>
                 <div class="sm:col-span-2 flex justify-end"><button class="btn-primary">Save</button></div>
@@ -52,7 +52,7 @@
             <h2 class="mb-3">AI configuration</h2>
             <form method="POST" action="{{ route('projects.ai', $project) }}" class="grid gap-3" x-data="{ s: '{{ $project->generation_strategy }}', cred: '{{ $project->ai_credential_id }}', vcred: '{{ $project->video_credential_id }}', fb: {{ $project->fallback_enabled ? 'true' : 'false' }}, fcred: '{{ $project->fallback_credential_id }}', tm: @js($textModels), vm: @js($videoModels) }">
                 @csrf @method('PATCH')
-                <div><label class="label">Direction</label><select name="generation_strategy" x-model="s" class="input"><option value="ai">AI direction</option><option value="template">Template director (no AI)</option></select></div>
+                <div><label class="label">Direction</label><select name="generation_strategy" x-model="s" class="input"><option value="template">Built-in director (free)</option><option value="ai">AI direction (uses API credits)</option></select></div>
                 <div x-show="s === 'ai'" class="grid gap-3">
                     <select name="ai_credential_id" x-model="cred" class="input" aria-label="Provider"><option value="">Automatic</option>@foreach ($credentials as $c)<option value="{{ $c['id'] }}">{{ $c['name'] }} — {{ $c['provider'] }}{{ $c['usable'] ? '' : ' (not connected)' }}</option>@endforeach</select>
                     <select name="ai_model" class="input" aria-label="Model"><option value="">Connection default</option><template x-for="m in (tm[cred] || [])" :key="m.id"><option :value="m.id" :selected="m.id === @js($project->ai_model)" x-text="m.name"></option></template></select>

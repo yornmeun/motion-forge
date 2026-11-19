@@ -14,6 +14,7 @@ use App\Services\AI\CostEstimator;
 use App\Services\AI\ModelRegistry;
 use App\Services\Production\PackageService;
 use App\Services\Production\ProductionWorkflow;
+use App\Services\Production\SrtParser;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -63,7 +64,7 @@ class ProjectController extends Controller
         [$w, $h] = array_map('intval', explode('x', $d['resolution']));
         $settings = array_replace_recursive([
             'animation_style' => 'cinematic', 'camera' => 'mixed', 'atmosphere' => 'neutral', 'sound' => 'cinematic',
-            'subtitles' => ['y' => 1344, 'style' => 'serious'], 'thumbnail' => ['title' => null],
+            'subtitles' => ['y' => $w > $h ? 900 : 1344, 'style' => 'serious'], 'thumbnail' => ['title' => null],
         ], $d['settings'] ?? []);
         $project = Project::create([
             'user_id' => $request->user()->id, 'title' => $d['title'], 'description' => $d['description'] ?? null, 'genre' => $d['genre'] ?? null,
@@ -78,11 +79,11 @@ class ProjectController extends Controller
         $tab = 'package';
         try {
             if ($request->file('archive')) {
-                $pkg = $packages->createFromArchive($project, $request->user(), $request->file('archive'));
-                $workflow->validatePackage($pkg, $request->user());
-            } elseif ($request->hasAny(['story', 'narration', 'srt', 'voiceover']) && collect(['story', 'narration', 'srt', 'voiceover'])->contains(fn ($f) => $request->file($f))) {
-                $pkg = $packages->createFromUploads($project, $request->user(), $request->only(['story', 'narration', 'srt', 'voiceover', 'characters']));
-                $workflow->validatePackage($pkg, $request->user());
+                $pkg = $packages->createFromArchive($project, $request->user(), $request->file('archive'), $request->file('voiceover'));
+                $workflow->validatePackage($pkg, $request->user(), ['auto_produce' => $request->boolean('auto_produce')]);
+            } elseif (collect(['story', 'narration', 'srt', 'voiceover'])->contains(fn ($f) => $request->file($f))) {
+                $pkg = $packages->createFromUploads($project, $request->user(), $request->only(['story', 'narration', 'srt', 'voiceover', 'characters', ...PackageService::DOCUMENTS]));
+                $workflow->validatePackage($pkg, $request->user(), ['auto_produce' => $request->boolean('auto_produce')]);
             }
         } catch (Throwable $e) {
             return redirect()->route('projects.show', [$project, 'tab' => $tab])->withErrors(['package' => 'Project created, but the materials could not be stored: '.$e->getMessage()]);
@@ -98,7 +99,7 @@ class ProjectController extends Controller
         $scenes = $project->scenes()->with(['currentVersion', 'assets'])->get();
         $tab = $request->string('tab', 'overview')->toString();
         $model = $project->credential ? $registry->find($project->credential->provider->slug, $project->ai_model ?: (string) $project->credential->default_model) : null;
-        $cueCount = $project->approvedPackage ? count(app(\App\Services\Production\SrtParser::class)->parse($project->approvedPackage->srt_text)) : 0;
+        $cueCount = $project->approvedPackage ? count(app(SrtParser::class)->parse($project->approvedPackage->srt_text)) : 0;
 
         return view('projects.show', [
             'project' => $project, 'tab' => $tab, 'scenes' => $scenes,

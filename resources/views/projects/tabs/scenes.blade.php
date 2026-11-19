@@ -1,5 +1,10 @@
 <div class="grid gap-6">
-    @php $isNative = $project->production_mode->value === 'native_video'; @endphp
+    @php
+        $isNative = $project->production_mode->value === 'native_video';
+        $activeJobs = $jobs->whereIn('status', [\App\Enums\JobStatus::Queued, \App\Enums\JobStatus::Running]);
+        $activeJob = $activeJobs->first();
+        $latestStoryboardJob = $jobs->first(fn ($job) => $job->type === 'storyboard');
+    @endphp
     <section class="card card-pad">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center">
             <div class="flex-1">
@@ -21,7 +26,17 @@
                         <form method="POST" action="{{ route('storyboard.generate', $project) }}" x-data="{ busy: false }" @submit="busy = true">
                             @csrf <input type="hidden" name="continue" value="1"> <input type="hidden" name="approved" :value="approved ? 1 : 0">
                             @if ($scenes->isNotEmpty())<input type="hidden" name="replace" value="1">@endif
-                            <button class="{{ $scenes->isEmpty() ? 'btn-primary' : 'btn-secondary' }}" :disabled="busy" @if ($scenes->isNotEmpty()) onclick="return confirm('Replace all scenes with a new storyboard? Existing scene versions are discarded.')" @endif><i data-lucide="layout-template" class="size-4"></i>{{ $scenes->isEmpty() ? 'Generate storyboard + scenes' : 'Regenerate storyboard' }}</button>
+                            @if ($activeJobs->isNotEmpty())
+                                <button type="button" class="btn-primary" disabled>
+                                    <i data-lucide="loader-circle" class="size-4 animate-spin motion-reduce:animate-none"></i>
+                                    Generation running…
+                                </button>
+                            @else
+                                <button class="{{ $scenes->isEmpty() ? 'btn-primary' : 'btn-secondary' }}" :disabled="busy" @if ($scenes->isNotEmpty()) onclick="return confirm('Replace all scenes with a new storyboard? Existing scene versions are discarded.')" @endif>
+                                    <i data-lucide="layout-template" class="size-4"></i>
+                                    {{ $scenes->isEmpty() ? 'Generate storyboard + scenes' : 'Regenerate storyboard' }}
+                                </button>
+                            @endif
                         </form>
                     @endif
                     @if ($scenes->isNotEmpty() && ! $isNative)
@@ -31,10 +46,40 @@
                 </div>
             @endif
         </div>
-        @php $activeJobs = $jobs->whereIn('status', [\App\Enums\JobStatus::Queued, \App\Enums\JobStatus::Running]); @endphp
         @if ($activeJobs->isNotEmpty())
-            <div class="mt-4 rounded-lg bg-bg/50 p-3 text-sm" x-data x-init="setInterval(() => location.reload(), 6000)">
-                <div class="flex items-center gap-2"><span class="size-2 animate-pulse rounded-full bg-accent"></span>{{ $activeJobs->count() }} job(s) running — {{ $activeJobs->first()->stage }}. This page refreshes automatically.</div>
+            <div class="mt-4 grid gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4" x-data x-init="setTimeout(() => location.reload(), 5000)" role="status" aria-live="polite">
+                <div class="flex items-center gap-3">
+                    <span class="grid size-11 shrink-0 place-items-center rounded-full bg-primary/15 text-primary"><i data-lucide="loader-circle" class="size-6 animate-spin motion-reduce:animate-none"></i></span>
+                    <div class="min-w-0 flex-1">
+                        <p class="font-medium">Your video is being prepared</p>
+                        <p class="text-sm text-muted">{{ $activeJobs->count() }} active job(s) · {{ $activeJob->stage }}</p>
+                    </div>
+                    <span class="hidden rounded-full bg-primary/10 px-3 py-1 text-xs text-primary sm:inline-flex">In progress</span>
+                </div>
+                <div class="h-2 overflow-hidden rounded-full bg-elevated"><div class="h-full w-1/3 rounded-full bg-primary motion-safe:animate-pulse"></div></div>
+                @if ($activeJob->error && str_contains($activeJob->error, 'HTTP 503'))
+                    <p class="text-sm text-amber-200">The AI provider is temporarily busy. MotionForge will retry automatically.</p>
+                @else
+                    <p class="text-xs text-muted">This page refreshes automatically while generation runs.</p>
+                @endif
+            </div>
+        @endif
+        @if ($scenes->isEmpty() && $activeJobs->isEmpty() && $latestStoryboardJob?->status === \App\Enums\JobStatus::Failed)
+            <div class="mt-4 flex flex-col gap-3 rounded-xl border border-error/40 bg-error/10 p-4 sm:flex-row sm:items-center" role="alert">
+                <div class="flex-1">
+                    <p class="font-medium text-red-200">Storyboard generation failed</p>
+                    <p class="mt-1 text-sm text-red-200/80">
+                        @if ($latestStoryboardJob->error && str_contains($latestStoryboardJob->error, 'HTTP 503'))
+                            The AI provider is temporarily overloaded. The automatic retries have ended; try again when the provider is available.
+                        @else
+                            {{ $latestStoryboardJob->error ?: 'The storyboard could not be generated.' }}
+                        @endif
+                    </p>
+                </div>
+                <form method="POST" action="{{ route('jobs.retry', $latestStoryboardJob) }}">
+                    @csrf
+                    <button class="btn-secondary btn-sm">Retry storyboard</button>
+                </form>
             </div>
         @endif
         @foreach ($jobs->where('status', \App\Enums\JobStatus::WaitingApproval)->take(3) as $j)

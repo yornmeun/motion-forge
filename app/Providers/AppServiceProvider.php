@@ -14,6 +14,7 @@ use App\Services\AI\Providers\KimiProvider;
 use App\Services\AI\Providers\OpenAIProvider;
 use App\Services\Rendering\KikitoonsEngine;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Foundation\DevCommands;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -24,10 +25,10 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(AIManager::class, fn () => new AIManager([
-            'claude' => new ClaudeProvider(),
-            'gemini' => new GeminiProvider(),
-            'openai' => new OpenAIProvider(),
-            'kimi' => new KimiProvider(),
+            'claude' => new ClaudeProvider,
+            'gemini' => new GeminiProvider,
+            'openai' => new OpenAIProvider,
+            'kimi' => new KimiProvider,
         ]));
         $this->app->singleton(KikitoonsEngine::class);
         $this->app->bind(AnimationEngineInterface::class, KikitoonsEngine::class);
@@ -35,6 +36,11 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        DevCommands::register(
+            'cd public && php -d post_max_size=320M -d upload_max_filesize=300M -S 127.0.0.1:8000 ../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php',
+            'server',
+        );
+
         Gate::policy(Project::class, ProjectPolicy::class);
         Gate::policy(AiCredential::class, AiCredentialPolicy::class);
         Gate::define('admin', fn ($user) => $user->isAdmin());

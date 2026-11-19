@@ -13,9 +13,9 @@
         <div class="grid h-fit gap-6">
             @if ($caption)
                 <section class="card card-pad" x-data="{ copied: false, text: @js($caption->postText()) }">
-                    <div class="mb-3 flex items-center justify-between"><h2>Post caption</h2><button class="btn-secondary btn-sm" @click="navigator.clipboard.writeText(text); copied = true; setTimeout(() => copied = false, 2000)"><i data-lucide="copy" class="size-4"></i><span x-text="copied ? 'Copied' : 'Copy'"></span></button></div>
+                    <div class="mb-3 flex items-center justify-between"><h2>{{ $caption->isYoutubeBlock() ? 'YouTube text' : 'Post caption' }}</h2><button class="btn-secondary btn-sm" @click="navigator.clipboard.writeText(text); copied = true; setTimeout(() => copied = false, 2000)"><i data-lucide="copy" class="size-4"></i><span x-text="copied ? 'Copied' : 'Copy'"></span></button></div>
                     <p class="whitespace-pre-line">{{ $caption->body }}</p>
-                    <p class="mt-2 text-indigo-300">{{ implode(' ', $caption->hashtags) }}</p>
+                    @unless ($caption->isYoutubeBlock())<p class="mt-2 text-indigo-300">{{ implode(' ', $caption->hashtags) }}</p>@endunless
                     <p class="mt-3 text-xs text-muted">Written by {{ $caption->origin }}.</p>
                 </section>
             @endif
@@ -23,9 +23,15 @@
                 <section class="card card-pad">
                     <h2 class="mb-3">Thumbnail checks</h2>
                     <div class="flex items-end gap-4">
-                        <figure><img src="{{ route('media.show', [$project, 'thumbnail', $thumbnail->id]) }}" class="w-32 rounded-lg" alt="Thumbnail"><figcaption class="mt-1 text-xs text-muted">1080×1920</figcaption></figure>
-                        <figure><img src="{{ route('media.show', [$project, 'thumb-check', 'x']) }}" class="w-[68px] rounded" alt="Small"><figcaption class="mt-1 text-xs text-muted">270×480</figcaption></figure>
-                        <figure><img src="{{ route('media.show', [$project, 'thumb-check', 'x']) }}?v=crop" class="w-24 rounded" alt="3:4 crop"><figcaption class="mt-1 text-xs text-muted">3:4 crop</figcaption></figure>
+                        @if ($project->isLandscape())
+                            <figure><img src="{{ route('media.show', [$project, 'thumbnail', $thumbnail->id]) }}" class="w-64 rounded-lg" alt="Thumbnail"><figcaption class="mt-1 text-xs text-muted">1280×720</figcaption></figure>
+                            <figure><img src="{{ route('media.show', [$project, 'thumb-check', 'x']) }}?v=medium" class="w-40 rounded" alt="Medium"><figcaption class="mt-1 text-xs text-muted">640×360</figcaption></figure>
+                            <figure><img src="{{ route('media.show', [$project, 'thumb-check', 'x']) }}" class="w-[84px] rounded" alt="Small"><figcaption class="mt-1 text-xs text-muted">168×94 (mobile)</figcaption></figure>
+                        @else
+                            <figure><img src="{{ route('media.show', [$project, 'thumbnail', $thumbnail->id]) }}" class="w-32 rounded-lg" alt="Thumbnail"><figcaption class="mt-1 text-xs text-muted">1080×1920</figcaption></figure>
+                            <figure><img src="{{ route('media.show', [$project, 'thumb-check', 'x']) }}" class="w-[68px] rounded" alt="Small"><figcaption class="mt-1 text-xs text-muted">270×480</figcaption></figure>
+                            <figure><img src="{{ route('media.show', [$project, 'thumb-check', 'x']) }}?v=crop" class="w-24 rounded" alt="3:4 crop"><figcaption class="mt-1 text-xs text-muted">3:4 crop</figcaption></figure>
+                        @endif
                     </div>
                 </section>
             @endif
