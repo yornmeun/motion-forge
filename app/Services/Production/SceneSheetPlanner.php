@@ -24,6 +24,7 @@ class SceneSheetPlanner implements ScenePlannerInterface
         private PackageAssetMapper $assets,
         private TemplateStoryboardPlanner $template,
         private NarrationMatcher $matcher,
+        private ActionLexicon $lexicon,
     ) {}
 
     public function plan(Project $project, User $user, array $options = []): PlanResult
@@ -56,6 +57,8 @@ class SceneSheetPlanner implements ScenePlannerInterface
             $shot['music'] = $this->music($entry) ?? $shot['music'];
             $shot['characters'] = array_column($cast, 'name');
             $shot['camera'] = $this->camera($entry, $shot['camera'], $opensScene);
+            $shot['character_actions'] = $this->lexicon->phrases($text)
+                ?: ($this->lexicon->phrases($this->sheets->field($entry['fields'], ['action', 'blocking'])) ?: $shot['character_actions']);
             $shot['transition'] = $k === 0 ? 'none' : ($opensScene ? $this->transition($entry, $previousBackground !== $shot['background']) : 'none');
             $shot['visual_description'] = mb_substr("{$entry['id']} — {$entry['title']}: ".($this->sheets->field($entry['fields'], ['action', 'blocking']) ?: $shot['visual_description']), 0, 600);
             $previousBackground = $shot['background'];

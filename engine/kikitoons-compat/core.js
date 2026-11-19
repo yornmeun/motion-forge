@@ -353,7 +353,11 @@ function drawSuit(ctx, o = {}) {
   if (o.behindBody) o.behindBody(ctx);
   if (!arms.frontL) drawSuitArm(ctx, -66, arms.L, suit);
   if (!arms.frontR) drawSuitArm(ctx, 66, arms.R, suit);
-  if (!o.noLegs) for (const sx of [-30, 30]) { line(ctx, [[sx, 330], [sx * 1.1, 420], [sx * 1.15, 500]], OW * 2.2, INK); line(ctx, [[sx, 330], [sx * 1.1, 420], [sx * 1.15, 500]], OW * 1.3, shade(suit, -0.25)); rr(ctx, sx * 1.15 - 28, 494, 56, 20, 10); shape(ctx, '#1d1b20'); }
+  // o.legs: {L, R} polylines from the hip (±30, 330) to the foot (floor ≈ y 500), e.g. a walk cycle
+  if (!o.noLegs) for (const sx of [-30, 30]) {
+    const L = (o.legs && o.legs[sx < 0 ? 'L' : 'R']) || [[sx, 330], [sx * 1.1, 420], [sx * 1.15, 500]], f = L[L.length - 1];
+    line(ctx, L, OW * 2.2, INK); line(ctx, L, OW * 1.3, shade(suit, -0.25)); rr(ctx, f[0] - 28, f[1] - 6, 56, 20, 10); shape(ctx, '#1d1b20');
+  }
   ctx.beginPath(); ctx.moveTo(-70, 128); ctx.quadraticCurveTo(0, 110, 70, 128); ctx.lineTo(80, 340); ctx.quadraticCurveTo(0, 352, -80, 340); ctx.closePath(); shape(ctx, suit);
   ctx.beginPath(); ctx.moveTo(-24, 122); ctx.lineTo(0, 210); ctx.lineTo(24, 122); ctx.closePath(); shape(ctx, '#f4f1ea', INK, OW * 0.7);
   ctx.beginPath(); ctx.moveTo(-9, 132); ctx.lineTo(9, 132); ctx.lineTo(14, 230); ctx.lineTo(0, 248); ctx.lineTo(-14, 230); ctx.closePath(); shape(ctx, tie, INK, OW * 0.6);

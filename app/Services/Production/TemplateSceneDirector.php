@@ -12,7 +12,7 @@ use App\Services\Production\Data\CodeResult;
 /** Deterministic scene code from a plan, using the trusted mfStage() director runtime. */
 class TemplateSceneDirector implements AnimationGeneratorInterface
 {
-    public function __construct(private AnimationEngineInterface $engine) {}
+    public function __construct(private AnimationEngineInterface $engine, private ActionLexicon $lexicon) {}
 
     public function generate(Scene $scene, array $plan, User $user, array $options = []): CodeResult
     {
@@ -41,10 +41,39 @@ class TemplateSceneDirector implements AnimationGeneratorInterface
             $hero = collect($P['cast'])->search(fn (array $c) => $c['kind'] !== 'kiki');
             $P['hero'] = $hero === false ? null : $hero;
         }
+        $narration = (string) ($plan['narration_reference'] ?? '');
+        $kikiIndex = collect($P['cast'])->search(fn (array $c) => $c['kind'] === 'kiki');
+        $heroIndex = $P['hero'] ?? ($kikiIndex === false ? 0 : $kikiIndex);
+        $others = collect($P['cast'])->reject(fn (array $c, int $i) => $i === $heroIndex)->pluck('name')->all();
+        $P['beats'] = $this->beats($P['actions'], $narration);
+        $P['otherAct'] = $others ? $this->lexicon->otherAction($narration, $others) : 'listen';
         $json = json_encode($P, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $slam = ! empty($plan['slam_word']) ? "\n  P.slamAt = capLocal(SCENE_INDEX, ".json_encode($plan['slam_word']).', null);' : '';
 
-        return "function scene(ctx, t) {\n  const P = {$json};{$slam}\n  mfStage(ctx, t, P);\n}\n";
+        return "function scene(ctx, t) {\n  const P = {$json};\n  P.si = SCENE_INDEX;{$slam}\n  mfStage(ctx, t, P);\n}\n";
+    }
+
+    /**
+     * Timed action beats for the director: each plan action with the narration word that cues it. Plans whose
+     * actions name nothing the director can perform fall back to what the narration says.
+     *
+     * @param  list<string>  $actions
+     * @return list<array{a: string, w: ?string}>
+     */
+    public function beats(array $actions, string $narration): array
+    {
+        $beats = [];
+        foreach ($actions as $action) {
+            $key = $this->lexicon->keyFor((string) $action);
+            if ($key && ! in_array($key, array_column($beats, 'a'), true)) {
+                $beats[] = ['a' => $key, 'w' => $this->lexicon->triggerWord($key, $narration)];
+            }
+        }
+        if (! $beats) {
+            $beats = array_map(fn (array $found) => ['a' => $found['key'], 'w' => $found['word']], $this->lexicon->extract($narration));
+        }
+
+        return $beats;
     }
 
     private function bgKey(string $bg): string

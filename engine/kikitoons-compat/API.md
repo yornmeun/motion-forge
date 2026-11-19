@@ -40,7 +40,8 @@ applies grading, grain, vignette, captions and transitions; do not draw subtitle
   Never redraw or restyle him (backwards red cap brim left, freckles, yellow tee). (x, y) is the head centre;
   standing on the floor ≈ y 1000 at s 1.
 - Kids: `drawChar(ctx, {x, y, s, shirt, hair: 'bob'|'pony'|'buns'|'long'|'side'|'spiky'|'curly'|'beanie', hairCol, face, arms})`
-- Adults in suits: `drawSuit(ctx, {x, y, s, suit, tie, hair: 'karl'|'grey'|'greycap'|'bunGrey', glasses, mustache, face, arms, flip})`
+- Adults in suits: `drawSuit(ctx, {x, y, s, suit, tie, hair: 'karl'|'grey'|'greycap'|'bunGrey', glasses, mustache, face, arms, legs, flip})`
+  (`legs` = `{L, R}` polylines from the hips (±30, 330) to the feet (floor ≈ 500), so suits can walk too)
   (Principal Karl = defaults; stands at y ≈ 800).
 - `face`: `{lid 0..1, look:[dx,dy] −1..1, brows:'angry'|'sneaky'|'raise'|'up'|'worried'|'flat'|'stern', browLift, mouth:'happy'|'smirk'|'flat'|'teeth'|'O'|'talk'|'sad'|'wavy'|'chew'|'grin', ma 0..1, blink 0..1, red}`
 - `arms`: `ARMS.rest|up|cheer|fold|point|think|hips|shrug|phone` or `{L:[[ex,ey],[hx,hy]], R:[...], frontL, frontR, fistL, fistR}`

@@ -14,7 +14,7 @@ use App\Services\Production\Data\PlanResult;
  */
 class TemplateStoryboardPlanner implements ScenePlannerInterface
 {
-    public function __construct(private PackageService $packages, private SrtParser $srt, private StoryboardBuilder $builder, private NarrationMatcher $matcher) {}
+    public function __construct(private PackageService $packages, private SrtParser $srt, private StoryboardBuilder $builder, private NarrationMatcher $matcher, private ActionLexicon $lexicon) {}
 
     public function plan(Project $project, User $user, array $options = []): PlanResult
     {
@@ -182,28 +182,9 @@ class TemplateStoryboardPlanner implements ScenePlannerInterface
         };
     }
 
+    /** @return list<string> what the narration says the hero does, in spoken order (acted out by the director) */
     private function actions(string $t): array
     {
-        $a = [];
-        if (preg_match('/\b(walk|walked|went|came)\b/u', $t)) {
-            $a[] = 'walks forward';
-        }
-        if (preg_match('/\b(ran|run|running)\b/u', $t)) {
-            $a[] = 'runs';
-        }
-        if (preg_match('/\b(phone|text|message|typed)\b/u', $t)) {
-            $a[] = 'looks at phone';
-        }
-        if (preg_match('/\b(pointed|accused|you)\b/u', $t)) {
-            $a[] = 'points';
-        }
-        if (preg_match('/\b(turned|looked)\b/u', $t)) {
-            $a[] = 'slowly turns head';
-        }
-        if (preg_match('/\b(think|thought|realized|wondered)\b/u', $t)) {
-            $a[] = 'thinks';
-        }
-
-        return $a ?: ['holds a tense stare, breathing'];
+        return $this->lexicon->phrases($t) ?: ['acts out the emotion'];
     }
 }

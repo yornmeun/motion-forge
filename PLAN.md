@@ -88,6 +88,17 @@ Production Studio" spec (22 sections) plus the `kikitoons-video-maker-v1` skill
       Lucide trimmed via `scripts/build-icons.mjs` (runs before build/dev): app JS 555 kB → 111 kB.
 - [x] Docs: `docs/deployment.md` (Ubuntu + Windows), `docs/architecture.md` rewritten, README updated.
 
+### Done 2026-11-20 — template (free) mode characters act out the narration
+- [x] `ActionLexicon` (~37 actions: phone, call, type, read, write, eat, drink, cry, laugh, shout, talk, think, point,
+      shock, hug, give, money, door, knock, sleep, wake, sit, walk in/away, run, pace, wave, nod, …) turns narration or
+      the scene sheet's Action field into ordered actions + the spoken trigger word. Both template planners use it.
+- [x] `director.js` beat system: each action starts ~0.35 s before its word is spoken (CAPS timings), eased hand-offs,
+      props (desk/laptop/bowl/notebook, chair, bed + blanket, door, phone glow), other characters react (listen, receive,
+      hug back, talk when the narration quotes them). With no actions the character still acts out the emotion.
+      `drawSuit` accepts `legs`, so adults walk and sit too. Existing scene code keeps working (phrase fallback).
+- Known: `QueueAndJobsTest` has 2 pre-existing failures (tests call `GenerateSceneCodeJob::handle()` without the
+  `ProductionWorkflow` argument).
+
 ### Remaining work (in order)
 1. Scene editor **in a real browser** (server side is tested): player iframe messaging, WaveSurfer waveform,
    Sortable drag (reverts on invalid order), timing ± cue buttons, code edit → ValidateSceneCodeJob.
